@@ -1,0 +1,2326 @@
+#!/usr/bin/env python3.9
+import os
+import logging
+import json
+import requests
+import random
+import string
+import time
+import urllib.parse
+import base64
+import socket
+import ipaddress
+import re
+from html.parser import HTMLParser
+import io
+import threading
+from datetime import datetime
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import ParseMode
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
+
+# ==================== CONFIGURATION & API KEYS ====================
+BOT_TOKEN = "9086971945:AAH_iZznxIve4DZ7lyTYy_18bHJvs0pMzws"
+ADMIN_ID = 8987006915
+
+VIRUSTOTAL_API_KEY = "3d28d5b17ee9246ac1f6c33477c64b402a7dc67700d2b870a4e15de72b8ca5b8"
+OPENAI_CHATGPT_KEY = "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"
+
+RAPIDAPI_TIKTOK_KEY = "9086971945:AAH_iZznxIve4DZ7lyTYy_18bHJvs0pMzws"
+APIFY_INSTAGRAM_TOKEN = "9086971945:AAH_iZznxIve4DZ7lyTYy_18bHJvs0pMzws"
+
+DEEPSEEK_API_KEY = "9086971945:AAH_iZznxIve4DZ7lyTYy_18bHJvs0pMzws"
+TTS_AI_KEY = "9086971945:AAH_iZznxIve4DZ7lyTYy_18bHJvs0pMzws"
+ELEVENLABS_TTS_KEY = "9086971945:AAH_iZznxIve4DZ7lyTYy_18bHJvs0pMzws"
+
+# القنوات المطلوبة للاشتراك الإجباري
+MANDATORY_CHANNELS = ["@a_x_vvx", "@a_x_vvx", "@a_x_vvx", "@a_x_vvx"]
+
+# شروط الاستخدام المعتمدة
+TERMS_OF_USE_TEXT = (
+    "🔐 شروط استخدام البوت\n\n"
+    "• يُستخدم البوت لأغراض التعلّم، الاختبار الأمني المصرّح به، وحماية الأنظمة فقط.\n"
+    "• يُمنع استخدام البوت لاختراق الحسابات أو الأجهزة أو الشبكات دون تصريح.\n"
+    "• يُمنع تنفيذ هجمات أو تعطيل الخدمات والأنظمة.\n"
+    "• يُمنع سرقة أو جمع كلمات المرور، الرموز ، أو البيانات الشخصية دون إذن.\n"
+    "• يُمنع استخدام البوت لنشر البرمجيات الخبيثة أو أدوات التخريب..\n"
+    "• يتحمل المستخدم مسؤولية أي استخدام غير قانوني أو مخالف لهذه الشروط.\n"
+    "• يُمنع محاولة تجاوز أنظمة الحماية أو إساءة استخدام إمكانيات البوت.\n"
+    "• يحق لإدارة البوت إيقاف أو حظر أي مستخدم يخالف هذه الشروط.\n"
+    "• باستخدامك للبوت، فإنك توافق على هذه الشروط وتتعهد باستخدامه بشكل قانوني ومسؤول.\n\n"
+    "👨‍💻 المطور:\n"
+    "سوڪونا\n"
+    "🔗 يوزر المطور: @a_x_vvx"
+)
+
+REPORT_TYPES = [
+    "انتحال الشخصية",
+    "البريد العشوائي",
+    "التنمر أو المضايقة",
+    "خطاب الكراهية",
+    "العنف أو التهديد",
+    "العري أو المحتوى الجنسي",
+    "الاحتيال أو الخداع",
+    "انتهاك حقوق الملكية الفكرية",
+    "بيع السلع أو الخدمات المحظورة",
+    "إيذاء النفس",
+    "المعلومات الكاذبة",
+    "انتهاك الخصوصية"
+]
+
+JOKES_LIST = [
+    "واحد بخيل مات أبوه، كتب على القبر: «للإيجار» 😂",
+    "واحد سأل صاحبه: ليش لابس ساعتين؟ قاله: وحدة للتوقيت المحلي ووحدة احتياطية 😂",
+    "مدرس سأل طالب: ما جمع «مصباح»؟ قال: مصابيح. قاله: طيب جمع «مفتاح»؟ قال: مفاتيح. قاله: ممتاز! جمع «صباح»؟ قال: مصابيح 🤣",
+    "واحد قال للدكتور: كل ما أشرب شاي عيني توجعني! قاله الدكتور: جرّب تطلع الملعقة من الكوب قبل ما تشرب 😂",
+    "واحد كسلان جدًا، حلم إنه يشتغل… قام من النوم تعبان 🤣",
+    "واحد سأل بخيل: ليش ما تشتري سيارة؟ قال: أخاف البنزين يخلص. قاله: اشترِ كهربائية. قال: أخاف الكهرباء تخلص 😂",
+    "واحد راح للحلاق وقاله: قص لي شعري مثل السنة الماضية. قاله الحلاق: بس السنة الماضية ما جيت عندي! قال: أدري، خلّها مفاجأة 😂",
+    "طالب قال لأبوه: المدرسة قالت إني عبقري. قاله أبوه: طبيعي، أكيد ما شافوك وأنت تذاكر 🤣",
+    "واحد سأل صاحبه: أنت ليش كل يوم تضبط المنبه الساعة ٦؟ قال: عشان أعرف إني أقدر أصحى الساعة ٦… وبعدين أنام 😂",
+    "واحد غبي فتح محل ساعات، كل ما حد سأله عن الوقت قال: لحظة أشوف المدير 🤣"
+]
+
+if not BOT_TOKEN or ADMIN_ID == 0:
+    raise ValueError("❌ خطأ: يرجى التأكد من ضبط BOT_TOKEN و ADMIN_ID بشكل صحيح داخل الملف.")
+
+links = {
+    "cam_back": "https://cam-kh.vercel.app",
+    "cam_front": "https://camamam.vercel.app",
+    "location": "https://location-iota-roan.vercel.app",
+    "mic_record": "https://maikr-alpha.vercel.app",
+    "record_video": "https://cam-vi.vercel.app",
+    "pubg_hack": "https://pubg-mobile-neon.vercel.app",
+    "ff_hack": "https://free-fire-amber.vercel.app/",
+    "insta_hack": "https://insta-xi-lake.vercel.app",
+    "whatsapp_hack": "https://whats-rouge.vercel.app",
+    "facebook_hack": "https://faceb-1.vercel.app",
+    "tiktok_hack": "https://tiktok-rush.vercel.app",
+    "snapchat_hack": "https://snapchat-five.vercel.app",
+    "device_info": "https://gma-phone.vercel.app",
+    "high_quality_shot": "https://photo-4khd.vercel.app",
+    "get_victim_number": "https://t.me/Tothg_80bot",
+    "hack_x": "https://xx-two-amber.vercel.app",
+    "roblox_hack": "https://silly-sunflower-ab29c8.netlify.app/",
+    
+    "full_phone_photos": "https://sahb-phooto.vercel.app",
+    "full_phone_contacts": "https://sahb-arrgm.vercel.app",
+    "full_phone_messages": "https://sahb-rsaal.vercel.app",
+    "full_phone_commands": "https://tthak-ghsl5.vercel.app",
+    "full_phone_device": "https://gjuh-hhhgsi.vercel.app",
+
+    "link_exploit_panel": "https://tlgem-roabt.vercel.app",
+    "default_exploit_link": "https://tlgem-roabt.vercel.app?id=0123456789"
+}
+
+RADIO_STATIONS = [
+    {"name": "إذاعة القرآن الكريم (مكة المكرمة) 🕋", "url": "https://n0a.radiojar.com/0tpy1h0kxtzuv?rj-ttl=5&rj-tok=AAABhdgGORQA-2acfyF3_4WY2g"},
+    {"name": "إذاعة الشيخ عبد الباسط عبد الصمد 🎙️", "url": "https://radio.mp3islam.com/listen/abdulbasit/radio.mp3"},
+    {"name": "إذاعة مشاري العفاسي 🕌", "url": "https://qurango.net/radio/mishary_alafasi"},
+    {"name": "إذاعة ماهر المعيقلي 🕋", "url": "https://backup.qurango.net/radio/maher"},
+    {"name": "إذاعة القرآن الكريم (القاهرة) 📻", "url": "https://stream-29.zeno.fm/na3vpvn10qruv"}
+]
+
+AZKAR_MORNING = [
+    "آية الكرسي: اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ، لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ... (البقرة: 255).",
+    "سورة الإخلاص: قُلْ هُوَ اللَّهُ أَحَدٌ، اللَّهُ الصَّمَدُ، لَمْ يَلِدْ وَلَمْ يُولَدْ، وَلَمْ يَكُن لَّهُ كُفُوًا أَحَدٌ. (3 مرات).",
+    "سورة الفلق: قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ، مِن شَرِّ مَا خَلَقَ... (3 مرات).",
+    "سورة الناس: قُلْ أَعُوذُ بِرَبِّ النَّاسِ، مَلِكِ النَّاسِ، إِلَٰهِ النَّاسِ... (3 مرات).",
+    "أَصْبَحْنَا وَأَصْبَحَ الْمُلْكُ لِلَّهِ، وَالْحَمْدُ لِلَّهِ، لَا إِلَٰهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ.",
+    "اللَّهُمَّ بِكَ أَصْبَحْنَا، وَبِكَ أَمْسَيْنَا، وَبِكَ نَحْيَا، وَبِكَ نَمُوتُ، وَإِلَيْكَ النُّشُورُ.",
+    "اللَّهُمَّ أَنْتَ رَبِّي لَا إِلَٰهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ، وَأَنَا عَلَى عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ...",
+    "رَضِيتُ بِاللَّهِ رَبًّا، وَبِالْإِسْلَامِ دِينًا، وَبِمُحَمَّدٍ ﷺ نَبِيًّا. (3 مرات).",
+    "اللَّهُمَّ إِنِّي أَصْبَحْتُ أُشْهِدُكَ، وَأُشْهِدُ حَمَلَةَ عَرْشِكَ، وَمَلَائِكَتَكَ وَجَمِيعَ خَلْقِكَ، أَنَّكَ أَنْتَ اللَّهُ لَا إِلَٰهَ إِلَّا أَنْتَ، وَأَنَّ مُحَمَّدًا عَبْدُكَ وَرَسُولُكَ. (4 مرات).",
+    "اللَّهُمَّ مَا أَصْبَحَ بِي مِنْ نِعْمَةٍ أَوْ بِأَحَدٍ مِنْ خَلْقِكَ، فَمِنْكَ وَحْدَكَ لَا شَرِيكَ لَكَ، فَلَكَ الْحَمْدُ وَلَكَ الشُّكْرُ.",
+    "اللَّهُمَّ عَافِنِي فِي بَدَنِي، اللَّهُمَّ عَافِنِي فِي سَمْعِي، اللَّهُمَّ عَافِنِي فِي بَصَرِي، لَا إِلَٰهَ إِلَّا أَنْتَ. (3 مرات).",
+    "اللَّهُمَّ إِنِّي أَعُوذُ بِكَ مِنَ الْكُفْرِ وَالْفَقْرِ، وَأَعُوذُ بِكَ مِنْ عَذَابِ الْقَبْرِ، لَا إِلَٰهَ إِلَّا أَنْتَ. (3 مرات).",
+    "حَسْبِيَ اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ، عَلَيْهِ تَوَكَّلْتُ وَهُوَ رَبُّ الْعَرْشِ الْعَظِيمِ. (7 مرات).",
+    "اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي الدُّنْيَا وَالْآخِرَةِ، اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي دِينِي وَدُنْيَايَ وَأَهْلِي وَمَالِي.",
+    "اللَّهُمَّ اسْتُرْ عَوْرَاتِي، وَآمِنْ رَوْعَاتِي، اللَّهُمَّ احْفَظْنِي مِنْ بَيْنِ يَدَيَّ وَمِنْ خَلْفِي، وَعَنْ يَمِينِي وَعَنْ شِمَالِي وَمِنْ فَوْقِي، وَأَعُوذُ بِعَظَمَتِكَ أَنْ أُغْتَالَ مِنْ تَحْتِي.",
+    "اللَّهُمَّ عَالِمَ الْغَيْبِ وَالشَّهَادَةِ، فَاطِرَ السَّمَاوَاتِ وَالْأَرْضِ، رَبَّ كُلِّ شَيْءٍ وَمَلِيكَهُ، أَشْهَدُ أَنْ لَا إِلَٰهَ إِلَّا أَنْتَ، أَعُوذُ بِكَ مِنْ شَرِّ نَفْسِي وَمِنْ شَرِّ الشَّيْطَانِ وَشِرْكِهِ.",
+    "بِسْمِ اللَّهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ. (3 مرات).",
+    "أَعُوذُ بِكَلِمَاتِ اللَّهِ التَّامَّاتِ مِنْ شَرِّ مَا خَلَقَ. (3 مرات).",
+    "اللَّهُمَّ صَلِّ وَسَلِّمْ وَبَارِكْ عَلَى نَبِيِّنَا مُحَمَّدٍ ﷺ. (10 مرات).",
+    "سُبْحَانَ اللَّهِ وَبِحَمْدِهِ. (100 مرة).",
+    "لَا إِلَٰهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ. (100 مرة).",
+    "أَسْتَغْفِرُ اللَّهَ وَأَتُوبُ إِلَيْهِ. (100 مرة).",
+    "يَا حَيُّ يَا قَيُّومُ، بِرَحْمَتِكَ أَسْتَغِيثُ، أَصْلِحْ لِي شَأْنِي كُلَّهُ، وَلَا تَكِلْنِي إِلَى نَفْسِي طَرْفَةَ عَيْنٍ.",
+    "اللَّهُمَّ إِنِّي أَسْأَلُكَ عِلْمًا نَافِعًا، وَرِزْقًا طَيِّبًا، وَعَمَلًا مُتَقَبَّلًا.",
+]
+
+AZKAR_EVENING = [
+    "آية الكرسي: اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ، لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ... (البقرة: 255).",
+    "سورة الإخلاص: قُلْ هُوَ اللَّهُ أَحَدٌ، اللَّهُ الصَّمَدُ، لَمْ يَلِدْ وَلَمْ يُولَدْ، وَلَمْ يَكُن لَّهُ كُفُوًا أَحَدٌ. (3 مرات).",
+    "سورة الفلق: قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ، مِن شَرِّ مَا خَلَقَ... (3 مرات).",
+    "سورة الناس: قُلْ أَعُوذُ بِرَبِّ النَّاسِ، مَلِكِ النَّاسِ، إِلَٰهِ النَّاسِ... (3 مرات).",
+    "أَمْسَيْنَا وَأَمْسَى الْمُلْكُ لِلَّهِ، وَالْحَمْدُ لِلَّهِ، لَا إِلَٰهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ.",
+    "اللَّهُمَّ بِكَ أَمْسَيْنَا، وَبِكَ أَصْبَحْنَا، وَبِكَ نَحْيَا، وَبِكَ نَمُوتُ، وَإِلَيْكَ الْمَصِيرُ.",
+    "رَضِيتُ بِاللَّهِ رَبًّا، وَبِالْإِسْلَامِ دِينًا، وَبِمُحَمَّدٍ ﷺ نَبِيًّا. (3 مرات).",
+    "اللَّهُمَّ إِنِّي أَمْسَيْتُ أُشْهِدُكَ، وَأُشْهِدُ حَمَلَةَ عَرْشِكَ، وَمَلَائِكَتَكَ وَجَمِيعَ خَلْقِكَ، أَنَّكَ أَنْتَ اللَّهُ لَا إِلَٰهَ إِلَّا أَنْتَ، وَأَنَّ مُحَمَّدًا عَبْدُكَ وَرَسُولُكَ. (4 مرات).",
+    "اللَّهُمَّ مَا أَمْسَى بِي مِنْ نِعْمَةٍ أَوْ بِأَحَدٍ مِنْ خَلْقِكَ، فَمِنْكَ وَحْدَكَ لَا شَرِيكَ لَكَ، فَلَكَ الْحَمْدُ وَلَكَ الشُّكْرُ.",
+    "اللَّهُمَّ عَافِنِي فِي بَدَنِي، اللَّهُمَّ عَافِنِي فِي سَمْعِي، اللَّهُمَّ عَافِنِي فِي بَصَرِي، لَا إِلَٰهَ إِلَّا أَنْتَ. (3 مرات).",
+    "اللَّهُمَّ إِنِّي أَعُوذُ بِكَ مِنَ الْكُفْرِ وَالْفَقْرِ، وَأَعُوذُ بِكَ مِنْ عَذَابِ الْقَبْرِ، لَا إِلَٰهَ إِلَّا أَنْتَ. (3 مرات).",
+    "حَسْبِيَ اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ، عَلَيْهِ تَوَكَّلْتُ وَهُوَ رَبُّ الْعَرْشِ الْعَظِيمِ. (7 مرات).",
+    "اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي الدُّنْيَا وَالْآخِرَةِ، اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي دِينِي وَدُنْيَايَ وَأَهْلِي وَمَالِي.",
+    "اللَّهُمَّ اسْتُرْ عَوْرَاتِي، وَآمِنْ رَوْعَاتِي، اللَّهُمَّ احْفَظْنِي مِنْ بَيْنِ يَدَيَّ وَمِنْ خَلْفِي، وَعَنْ يَمِينِي وَعَنْ شِمَالِي وَمِنْ فَوْقِي، وَأَعُوذُ بِعَظَمَتِكَ أَنْ أُغْتَالَ مِنْ تَحْتِي.",
+    "اللَّهُمَّ عَالِمَ الْغَيْبِ وَالشَّهَادَةِ، فَاطِرَ السَّمَاوَاتِ وَالْأَرْضِ، رَبَّ كُلِّ شَيْءٍ وَمَلِيكَهُ، أَشْهَدُ أَنْ لَا إِلَٰهَ إِلَّا أَنْتَ، أَعُوذُ بِكَ مِنْ شَرِّ نَفْسِي وَمِنْ شَرِّ الشَّيْطَانِ وَشِرْكِهِ.",
+    "بِسْمِ اللَّهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ. (3 مرات).",
+    "أَعُوذُ بِكَلِمَاتِ اللَّهِ التَّامَّاتِ مِنْ شَرِّ مَا خَلَقَ. (3 مرات).",
+    "اللَّهُمَّ صَلِّ وَسَلِّمْ وَبَارِكْ عَلَى نَبِيِّنَا مُحَمَّدٍ ﷺ. (10 مرات).",
+    "سُبْحَانَ اللَّهِ وَبِحَمْدِهِ. (100 مرة).",
+    "لَا إِلَٰهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ. (100 مرة).",
+    "أَسْتَغْفِرُ اللَّهَ وَأَتُوبُ إِلَيْهِ. (100 مرة).",
+    "اللَّهُمَّ إِنِّي أَعُوذُ بِكَ مِنَ الْهَمِّ وَالْحَزَنِ، وَأَعُوذُ بِكَ مِنَ الْعَجْزِ وَالْكَسَلِ، وَأَعُوذُ بِكَ مِنَ الْجُبْنِ وَالْبُخْلِ، وَأَعُوذُ بِكَ مِنْ غَلَبَةِ الدَّيْنِ وَقَهْرِ الرِّجَالِ.",
+]
+
+
+# ==================== SETUP ====================
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+DATABASE_DIR = "database"
+if not os.path.exists(DATABASE_DIR):
+    os.makedirs(DATABASE_DIR)
+
+bot_user_states = {}
+made_bot_data = {}
+BOT_USERNAME = None
+active_reports = {}
+
+DEFAULT_BOT_SETTINGS = {
+    "channels": [],
+    "notifications": "off",
+    "bot_status": "on",
+    "payment_status": "free",
+    "points_system_status": "on",
+    "user_points": {},
+    "daily_gifts": {},
+    "banned_users": [],
+    "admins": [ADMIN_ID],
+    "members": [],
+    "start_message": "**مرحبًا بك في البوت الاحترافي الشامل**",
+    "bot_type": "hack_bot"
+}
+
+# ==================== HELPERS ====================
+def send_message(bot_instance, chat_id, text, reply_markup=None, parse_mode=None):
+    try:
+        return bot_instance.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception as e:
+        logging.error(f"Error sending message to {chat_id}: {e}")
+
+def edit_message_text(bot_instance, chat_id, message_id, text, reply_markup=None, parse_mode=None):
+    try:
+        return bot_instance.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception as e:
+        logging.error(f"Error editing message {message_id} in {chat_id}: {e}")
+
+# ==================== DATABASE & SUBSCRIPTION ====================
+def get_made_bot_data_path(bot_username):
+    return os.path.join(DATABASE_DIR, f"{bot_username}_settings.json")
+
+def load_made_bot_settings(bot_username):
+    file_path = get_made_bot_data_path(bot_username)
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+                made_bot_data[bot_username] = {**DEFAULT_BOT_SETTINGS, **settings}
+        except Exception as e:
+            logging.error(f"Error loading settings for {bot_username}: {e}")
+            made_bot_data[bot_username] = DEFAULT_BOT_SETTINGS.copy()
+    else:
+        made_bot_data[bot_username] = DEFAULT_BOT_SETTINGS.copy()
+        save_made_bot_settings(bot_username)
+
+def save_made_bot_settings(bot_username):
+    file_path = get_made_bot_data_path(bot_username)
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(made_bot_data.get(bot_username, DEFAULT_BOT_SETTINGS), f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        logging.error(f"Error saving settings for {bot_username}: {e}")
+
+def is_user_admin(bot_username, user_id):
+    load_made_bot_settings(bot_username)
+    admins_list = made_bot_data[bot_username].get("admins", [ADMIN_ID])
+    return user_id in admins_list or user_id == ADMIN_ID
+
+def check_user_subscribed(bot_instance, user_id, bot_username):
+    """تحقق صارم من الاشتراك الإجباري. أي فشل في التحقق يُعامل كعدم اشتراك."""
+    if is_user_admin(bot_username, user_id):
+        return True, []
+
+    load_made_bot_settings(bot_username)
+    bot_settings = made_bot_data.get(bot_username, DEFAULT_BOT_SETTINGS)
+
+    # القنوات الأربع المحددة من صاحب البوت تبقى إلزامية دائماً.
+    channels_to_check = list(MANDATORY_CHANNELS)
+    custom_channels = bot_settings.get("channels", [])
+    for ch in custom_channels:
+        if ch and ch not in channels_to_check:
+            channels_to_check.append(ch)
+
+    not_subscribed = []
+    for ch in channels_to_check:
+        try:
+            member = bot_instance.get_chat_member(chat_id=ch, user_id=user_id)
+            if member.status not in ["creator", "administrator", "member"]:
+                not_subscribed.append(ch)
+        except Exception as e:
+            # عدم قدرة البوت على التحقق من قناة إلزامية لا يمنح صلاحية دخول.
+            logging.error(f"Subscription check error for {ch}: {e}")
+            if ch not in not_subscribed:
+                not_subscribed.append(ch)
+
+    return len(not_subscribed) == 0, not_subscribed
+
+def get_subscription_keyboard(not_subscribed_channels):
+    keyboard = []
+    channel_titles = {
+        "@qa0_4": "القناة الأولى 📢",
+        "@h_f_g20": "القناة الثانية 🔄",
+        "@djuui_nn": "القناة الثالثة ⭐️",
+        "@j_b_h300": "القناة الرابعة 🛠️"
+    }
+    for ch in not_subscribed_channels:
+        clean_ch = ch.replace("@", "")
+        title = channel_titles.get(ch, f"قناة {ch}")
+        keyboard.append([InlineKeyboardButton(title, url=f"https://t.me/{clean_ch}")])
+        
+    keyboard.append([InlineKeyboardButton("تحقق من الاشتراك ✅", callback_data="check_subscription_status")])
+    return InlineKeyboardMarkup(keyboard)
+
+def get_bot_username_from_token(bot_token):
+    try:
+        bot_info_resp = requests.get(f"https://api.telegram.org/bot{bot_token}/getMe", timeout=10).json()
+        if bot_info_resp.get("ok"):
+            return bot_info_resp["result"]["username"]
+    except Exception as e:
+        logging.error(f"Error getting bot username: {e}")
+    return "my_bot"
+
+def get_user_points(bot_username, user_id):
+    load_made_bot_settings(bot_username)
+    points_dict = made_bot_data[bot_username].get("user_points", {})
+    return points_dict.get(str(user_id), 0)
+
+def add_user_points(bot_username, user_id, amount):
+    load_made_bot_settings(bot_username)
+    if "user_points" not in made_bot_data[bot_username]:
+        made_bot_data[bot_username]["user_points"] = {}
+    current = made_bot_data[bot_username]["user_points"].get(str(user_id), 0)
+    made_bot_data[bot_username]["user_points"][str(user_id)] = current + amount
+    save_made_bot_settings(bot_username)
+
+def deduct_user_points(bot_username, user_id, amount):
+    load_made_bot_settings(bot_username)
+    if "user_points" not in made_bot_data[bot_username]:
+        made_bot_data[bot_username]["user_points"] = {}
+    current = made_bot_data[bot_username]["user_points"].get(str(user_id), 0)
+    made_bot_data[bot_username]["user_points"][str(user_id)] = max(0, current - amount)
+    save_made_bot_settings(bot_username)
+
+# ==================== KEYBOARDS ====================
+def get_admin_keyboard(bot_username, user_id, bot_type):
+    load_made_bot_settings(bot_username)
+    pay_status = made_bot_data[bot_username].get("payment_status", "free")
+    pay_btn = "تعيين وضع مجاني 🆓" if pay_status == "pro" else "تعيين وضع مدفوع 💰"
+
+    notif_status = made_bot_data[bot_username].get("notifications", "off")
+    notif_btn = "تعطيل التنبيهات ❎" if notif_status == "on" else "تفعيل التنبيهات ✔️"
+
+    # لوحة الإدارة بعد التعديل المطلوب: حذف الهدية، الصيانة، إيقاف البوت،
+    # وإلغاء تفعيل النقاط، مع إبقاء الوظائف الإدارية الأخرى كما هي.
+    keyboard = [
+        [InlineKeyboardButton("المشتركون 👥", callback_data="admin_stats_members")],
+        [InlineKeyboardButton("إذاعة رسالة 📮", callback_data="admin_broadcast_msg"),
+         InlineKeyboardButton("إرسال لمستخدم واحد 🔄", callback_data="admin_forward_msg")],
+        [InlineKeyboardButton("تغيير رسالة البدء 📝", callback_data="admin_set_start_msg")],
+        [InlineKeyboardButton("شحن نقاط 💎➕", callback_data="admin_recharge_points"),
+         InlineKeyboardButton("خصم نقاط 💎➖", callback_data="admin_deduct_points")],
+        [InlineKeyboardButton("تعيين اشتراك إجباري 💢", callback_data="admin_set_ch"),
+         InlineKeyboardButton("حذف اشتراك إجباري 🔱", callback_data="admin_del_ch")],
+        [InlineKeyboardButton(pay_btn, callback_data="admin_toggle_pay_mode")],
+        [InlineKeyboardButton(notif_btn, callback_data="admin_toggle_notif")],
+        [InlineKeyboardButton("حظر عضو 🚫", callback_data="admin_ban_user"),
+         InlineKeyboardButton("إلغاء حظر عضو ❌", callback_data="admin_unban_user")],
+        [InlineKeyboardButton("إضافة أدمن ➕", callback_data="admin_add_admin"),
+         InlineKeyboardButton("حذف أدمن ➖", callback_data="admin_del_admin")],
+        [InlineKeyboardButton("تحميل بيانات البوت 💾", callback_data="admin_download_data")],
+        [InlineKeyboardButton("رجوع للقائمة الرئيسية 🔙", callback_data="back_to_main_user_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_user_keyboard(admin_id, bot_username, user_id, bot_type):
+    load_made_bot_settings(bot_username)
+    keyboard = [
+        [InlineKeyboardButton("إختــ•ــراق الكاميرا الخلفية 📸 ", callback_data="cam_back"),
+         InlineKeyboardButton("إختــ•ــراق الكاميرا الأمامية 📸 ", callback_data="cam_front")],
+        [InlineKeyboardButton("تسجيل صوت الضحية 🎤 ", callback_data="mic_record"),
+         InlineKeyboardButton("إختــ•ــراق الموقع 📍 ", callback_data="location")],
+        [InlineKeyboardButton("تسجيل فيديو الضحية 🎥 ", callback_data="record_video"),
+         InlineKeyboardButton("إختــ•ــراق إنستقرام 💻 ", callback_data="insta_hack")],
+        [InlineKeyboardButton("إختــ•ــراق واتساب 🟢 ", callback_data="whatsapp_hack"),
+         InlineKeyboardButton("إختــ•ــراق فيسبوك 🟣 ", callback_data="facebook_hack")],
+        [InlineKeyboardButton("إختــ•ــراق سناب شات ⭐ ", callback_data="snapchat_hack"),
+         InlineKeyboardButton("إختــ•ــراق تيك توك 🟧 ", callback_data="tiktok_hack")],
+        [InlineKeyboardButton("إختراق ببجي موبايل 🎮 ", callback_data="pubg_hack"),
+         InlineKeyboardButton("اختراق فري فاير 🔥 ", callback_data="ff_hack")],
+        [InlineKeyboardButton("إختــ•ــراق الهاتف بالكامل 🔞", callback_data="user_button_full_phone_hack"),
+         InlineKeyboardButton("إختــ•ــراق منصة 𝕏 ", callback_data="hack_x")],
+        
+        [InlineKeyboardButton("الحصول على نقاط 💎", callback_data="get_points_main_menu")],
+
+        [InlineKeyboardButton("معرفة ID الحساب 🆔", callback_data="user_button_my_id"),
+         InlineKeyboardButton("اعطني نكتة 😂", callback_data="user_button_get_joke")],
+        [InlineKeyboardButton("أرقام وهمية ☎️", callback_data="user_button_fake_numbers"),
+         InlineKeyboardButton("تحويل النص إلى صوت 🔄", callback_data="user_button_text_to_speech")],
+        [InlineKeyboardButton("توليد كلمة مرور قوية 🔑", callback_data="user_button_strong_password"),
+         InlineKeyboardButton("توليد صور احترافية 🎨", callback_data="user_button_image_gen_pro")],
+        [InlineKeyboardButton("البحث عن الصور 🔍", callback_data="user_button_image_search_fixed"),
+         InlineKeyboardButton("أذكار الصباح و المساء 🕌", callback_data="user_button_azkar")],
+        
+        [InlineKeyboardButton("معلومات تيك توك 📱", callback_data="user_button_tiktok_info"),
+         InlineKeyboardButton("معلومات انستقرام 📱", callback_data="user_button_insta_info")],
+        [InlineKeyboardButton("الذكاء الشرير 🔥", callback_data="user_button_chatgpt"),
+         InlineKeyboardButton("Gemini 🤖", url="https://t.me/Gemini_ai_Rbot")],
+        
+        [InlineKeyboardButton("جمع معلومات الجهاز 🔬", callback_data="device_info"),
+         InlineKeyboardButton("تلغيم الروابط ⚠️", callback_data="user_button_link_exploit")],
+        [InlineKeyboardButton("صور عالية الدقة 🖼️", callback_data="high_quality_shot"),
+         InlineKeyboardButton("صيد فيزة 💳", callback_data="user_button_visa_phishing")],
+        [InlineKeyboardButton("الحصول على رقم الضحيــ*ـة 📲", url="https://t.me/Tothg_80bot"),
+         InlineKeyboardButton("إختــ•ــراق بث الراديو 📻", callback_data="user_button_radio_hack")],
+        [InlineKeyboardButton("SS7", callback_data="ss7_menu")],
+        [InlineKeyboardButton("فحص الروابط 🖌️", callback_data="user_button_link_check"),
+         InlineKeyboardButton("زخرفة الأسماء 🗿", callback_data="user_button_name_decorate")],
+        [InlineKeyboardButton("🔵 تشفير ملفات HTML 🔐", callback_data="user_button_html_encrypt"),
+         InlineKeyboardButton("🟣 تشفير ملفات Python 🔐", callback_data="user_button_python_encrypt")],
+        [InlineKeyboardButton("🔐 تشــفيــر النُّصــــــــوص", callback_data="user_button_crypto_tools"),
+         InlineKeyboardButton("بلاغات إنستقرام 🚨", callback_data="user_button_insta_reports")],
+        [InlineKeyboardButton("بلاغات تيك توك ☠️", callback_data="user_button_tiktok_reports"),
+         InlineKeyboardButton("بلاغات سناب شات 👻", callback_data="user_button_snap_reports")],
+        [InlineKeyboardButton("بلاغات تيليجرام 📡", url="https://t.me/Gk_abot"),
+         InlineKeyboardButton("صيد يوزرات تليجرام 💍", callback_data="telegram_usernames_menu")],
+        
+        [InlineKeyboardButton("شروط الاستخدام 🔐", callback_data="user_button_terms_of_use"),
+         InlineKeyboardButton("إرسال ملاحظة للمطور ✉️", callback_data="user_button_send_developer_note")]
+    ]
+    
+    if is_user_admin(bot_username, user_id):
+        keyboard.append([InlineKeyboardButton("لوحة التحكم ⚙️", callback_data="open_admin_panel")])
+        
+    keyboard.append([InlineKeyboardButton("تواصل مع المطور 👨‍🎓", url=f"tg://user?id={admin_id}")])
+    return InlineKeyboardMarkup(keyboard)
+
+def get_full_phone_hack_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("سحب جميع صور الهاتف 🔒 (90 نقطة)", callback_data="full_phone_photos")],
+        [InlineKeyboardButton("سحب جميع أرقام الضحية 🔒 (90 نقطة)", callback_data="full_phone_contacts")],
+        [InlineKeyboardButton("سحب جميع رسائل الضحية 🔒 (90 نقطة)", callback_data="full_phone_messages")],
+        [InlineKeyboardButton("التحكم بجهاز الضحية 🔒 (90 نقطة)", callback_data="full_phone_commands")],
+        [InlineKeyboardButton("إختــ•ــراق جهاز الضحية 🔒 (90 نقطة)", callback_data="full_phone_device")],
+        [InlineKeyboardButton("💎 الحصول على نقاط", callback_data="get_points_main_menu")],
+        [InlineKeyboardButton("رجوع 🔙", callback_data="back_to_main_user_menu")]
+    ])
+
+def get_report_types_keyboard(platform, username):
+    keyboard = []
+    for i in range(0, len(REPORT_TYPES), 2):
+        row = [InlineKeyboardButton(REPORT_TYPES[i], callback_data=f"rpt_{platform}_{i+1}_{username}")]
+        if i + 1 < len(REPORT_TYPES):
+            row.append(InlineKeyboardButton(REPORT_TYPES[i+1], callback_data=f"rpt_{platform}_{i+2}_{username}"))
+        keyboard.append(row)
+    
+    keyboard.append([InlineKeyboardButton("رجوع 🔙", callback_data="back_to_main_user_menu")])
+    return InlineKeyboardMarkup(keyboard)
+
+# ==================== LIVE REPORTING THREAD LOOP ====================
+def run_reports_loop(bot_instance, chat_id, message_id, platform_name, username, report_type_name):
+    active_reports[chat_id] = True
+    total = 1
+    success = 1
+    failed = 0
+    max_reports = 2000
+
+    while total < max_reports and active_reports.get(chat_id, False):
+        time.sleep(1.2)
+        if not active_reports.get(chat_id, False):
+            break
+            
+        step = random.randint(15, 45)
+        total += step
+        if total > max_reports:
+            total = max_reports
+
+        success = int(total * random.uniform(0.92, 0.97))
+        failed = total - success
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("إيقاف البلاغات 🛑", callback_data=f"stop_reports_{chat_id}")]
+        ])
+
+        text = (
+            f"🚨 *جاري إرسال البلاغات المكثفة...*\n\n"
+            f"👤 *اسم المستخدم:* `@{username}`\n"
+            f"📱 *المنصة:* `{platform_name}`\n"
+            f"📋 *نوع البلاغ:* `{report_type_name}`\n\n"
+            f"البلاغات الناجحة ✅: {success}\n"
+            f"البلاغات الفاشلة ❌: {failed}\n"
+            f"جميع البلاغات: {total}"
+        )
+
+        try:
+            bot_instance.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            logging.error(f"Report update loop error: {e}")
+            pass
+
+    is_stopped = not active_reports.get(chat_id, False)
+    active_reports[chat_id] = False
+
+    status_header = "🛑 *تم إيقاف البلاغات بنجاح!*" if is_stopped else "✅ *تم الانتهاء من إرسال (2000) بلاغ بنجاح!*"
+
+    final_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("رجوع للقائمة الرئيسية 🔙", callback_data="back_to_main_user_menu")]
+    ])
+
+    final_text = (
+        f"{status_header}\n\n"
+        f"👤 *اسم المستخدم:* `@{username}`\n"
+        f"📱 *المنصة:* `{platform_name}`\n"
+        f"📋 *نوع البلاغ:* `{report_type_name}`\n\n"
+        f"البلاغات الناجحة ✅ : {success}\n"
+        f"البلاغات الفاشلة ❌ : {failed}\n"
+        f"جميع البلاغات 🚨 : {total}"
+    )
+
+    try:
+        bot_instance.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=final_text,
+            reply_markup=final_keyboard,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        logging.error(f"Final report update error: {e}")
+
+# ==================== ADVANCED LINK CHECK (VIRUSTOTAL + AI) ====================
+class _LinkPageParser(HTMLParser):
+    """Parser صغير لاستخراج مؤشرات تشغيلية من HTML بدون تنفيذ JavaScript."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.title = ""
+        self._in_title = False
+        self.forms = 0
+        self.password_inputs = 0
+        self.email_inputs = 0
+        self.external_scripts = 0
+        self.links = 0
+        self.meta_refresh = False
+
+    def handle_starttag(self, tag, attrs):
+        attrs_dict = dict(attrs)
+        tag = tag.lower()
+        if tag == "title":
+            self._in_title = True
+        elif tag == "form":
+            self.forms += 1
+        elif tag == "input":
+            input_type = str(attrs_dict.get("type", "text")).lower()
+            if input_type == "password":
+                self.password_inputs += 1
+            elif input_type == "email":
+                self.email_inputs += 1
+        elif tag == "script":
+            src = attrs_dict.get("src")
+            if src:
+                self.external_scripts += 1
+        elif tag == "a":
+            self.links += 1
+        elif tag == "meta":
+            http_equiv = str(attrs_dict.get("http-equiv", "")).lower()
+            if http_equiv == "refresh":
+                self.meta_refresh = True
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "title":
+            self._in_title = False
+
+    def handle_data(self, data):
+        if self._in_title and not self.title:
+            self.title = " ".join(data.split())[:200]
+
+
+def _normalize_scan_url(target_link):
+    raw = (target_link or "").strip()
+    if not raw:
+        raise ValueError("الرابط فارغ.")
+    if not re.match(r"^https?://", raw, re.IGNORECASE):
+        raw = "https://" + raw
+    parsed = urllib.parse.urlparse(raw)
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+        raise ValueError("الرابط يجب أن يكون HTTP أو HTTPS صالحاً.")
+    return raw
+
+
+def _host_resolves_to_public_address(hostname):
+    """يمنع الفحص المحلي المباشر لتقليل مخاطر SSRF على خادم البوت."""
+    try:
+        addresses = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+    except Exception:
+        return False
+    if not addresses:
+        return False
+    for item in addresses:
+        ip_text = item[4][0]
+        try:
+            ip_obj = ipaddress.ip_address(ip_text)
+            if (ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or
+                    ip_obj.is_multicast or ip_obj.is_reserved or ip_obj.is_unspecified):
+                return False
+        except ValueError:
+            return False
+    return True
+
+
+def _safe_http_inspect(start_url, max_redirects=5, max_body_bytes=262144):
+    """يجلب metadata عامة فقط، ويتتبع التحويلات يدوياً مع تحقق SSRF لكل مضيف."""
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (compatible; Raven-Link-Scanner/1.0; +https://www.virustotal.com/)"
+    })
+
+    current = start_url
+    redirects = []
+    response = None
+
+    for _ in range(max_redirects + 1):
+        parsed = urllib.parse.urlparse(current)
+        hostname = parsed.hostname
+        if not hostname or not _host_resolves_to_public_address(hostname):
+            raise ValueError("تم رفض الاتصال بالمضيف لأنه غير عام أو تعذر التحقق من عنوانه.")
+
+        response = session.get(
+            current,
+            timeout=(8, 15),
+            allow_redirects=False,
+            stream=True,
+        )
+
+        location = response.headers.get("Location")
+        if response.status_code in (301, 302, 303, 307, 308) and location:
+            next_url = urllib.parse.urljoin(current, location)
+            redirects.append({
+                "status": response.status_code,
+                "from": current,
+                "to": next_url,
+            })
+            response.close()
+            current = _normalize_scan_url(next_url)
+            continue
+        break
+
+    if response is None:
+        raise RuntimeError("لم يتم الحصول على استجابة HTTP.")
+
+    content_type = response.headers.get("Content-Type", "").lower()
+    content_length = response.headers.get("Content-Length", "")
+    body = b""
+    if any(t in content_type for t in ("text/html", "application/xhtml+xml", "text/plain")):
+        try:
+            body = response.raw.read(max_body_bytes + 1)
+        finally:
+            response.close()
+        body = body[:max_body_bytes]
+    else:
+        response.close()
+
+    parser = _LinkPageParser()
+    if body:
+        try:
+            parser.feed(body.decode("utf-8", errors="replace"))
+        except Exception:
+            pass
+
+    return {
+        "final_url": current,
+        "status_code": response.status_code,
+        "content_type": content_type or "غير محدد",
+        "content_length": content_length or "غير محدد",
+        "server": response.headers.get("Server", "غير معلن"),
+        "redirects": redirects,
+        "title": parser.title or "غير متوفر",
+        "forms": parser.forms,
+        "password_inputs": parser.password_inputs,
+        "email_inputs": parser.email_inputs,
+        "external_scripts": parser.external_scripts,
+        "links": parser.links,
+        "meta_refresh": parser.meta_refresh,
+    }
+
+
+def _virustotal_url_report(url_to_check):
+    """يحصل على تقرير URL أو يرسله إلى VirusTotal ثم ينتظر نتيجة التحليل."""
+    headers = {
+        "x-apikey": VIRUSTOTAL_API_KEY,
+        "accept": "application/json",
+    }
+    url_id = base64.urlsafe_b64encode(url_to_check.encode("utf-8")).decode("ascii").rstrip("=")
+    report_url = f"https://www.virustotal.com/api/v3/urls/{url_id}"
+
+    response = requests.get(report_url, headers=headers, timeout=20)
+    if response.status_code == 200:
+        return response.json().get("data", {}).get("attributes", {}), None
+
+    if response.status_code != 404:
+        try:
+            detail = response.json().get("error", {}).get("message", response.text[:200])
+        except Exception:
+            detail = response.text[:200]
+        return None, f"VirusTotal HTTP {response.status_code}: {detail}"
+
+    scan_response = requests.post(
+        "https://www.virustotal.com/api/v3/urls",
+        headers=headers,
+        data={"url": url_to_check},
+        timeout=20,
+    )
+    if scan_response.status_code not in (200, 201):
+        try:
+            detail = scan_response.json().get("error", {}).get("message", scan_response.text[:200])
+        except Exception:
+            detail = scan_response.text[:200]
+        return None, f"تعذر إرسال الرابط إلى VirusTotal: HTTP {scan_response.status_code}: {detail}"
+
+    analysis_id = scan_response.json().get("data", {}).get("id")
+    if not analysis_id:
+        return None, "VirusTotal لم يُرجع معرّف التحليل."
+
+    analysis_url = f"https://www.virustotal.com/api/v3/analyses/{analysis_id}"
+    last_status = "queued"
+    for _ in range(10):
+        time.sleep(2)
+        analysis_response = requests.get(analysis_url, headers=headers, timeout=20)
+        if analysis_response.status_code != 200:
+            continue
+        analysis_data = analysis_response.json().get("data", {})
+        attrs = analysis_data.get("attributes", {})
+        last_status = attrs.get("status", last_status)
+        if last_status == "completed":
+            stats = attrs.get("stats", {})
+            return {"last_analysis_stats": stats, "analysis_status": last_status}, None
+
+    # حتى لو انتهت مهلة الانتظار، نحاول الحصول على التقرير النهائي مرة أخيرة.
+    response = requests.get(report_url, headers=headers, timeout=20)
+    if response.status_code == 200:
+        return response.json().get("data", {}).get("attributes", {}), None
+    return None, f"لم يكتمل تحليل VirusTotal خلال المهلة. الحالة الأخيرة: {last_status}"
+
+
+def check_link_virustotal_and_ai(target_link):
+    try:
+        url_to_check = _normalize_scan_url(target_link)
+    except ValueError as e:
+        return f"❌ *الرابط غير صالح:*\n`{e}`"
+
+    vt_attrs = None
+    vt_error = None
+    try:
+        vt_attrs, vt_error = _virustotal_url_report(url_to_check)
+    except Exception as e:
+        logging.exception("VirusTotal link check error")
+        vt_error = f"تعذر الاتصال بخدمة VirusTotal: {e}"
+
+    web_info = None
+    web_error = None
+    try:
+        web_info = _safe_http_inspect(url_to_check)
+    except Exception as e:
+        logging.exception("Safe HTTP link inspection error")
+        web_error = str(e)
+
+    stats = (vt_attrs or {}).get("last_analysis_stats", {}) or {}
+    malicious = int(stats.get("malicious", 0) or 0)
+    suspicious = int(stats.get("suspicious", 0) or 0)
+    harmless = int(stats.get("harmless", 0) or 0)
+    undetected = int(stats.get("undetected", 0) or 0)
+    timeout = int(stats.get("timeout", 0) or 0)
+
+    if malicious > 0:
+        risk = "🔴 خطير جداً"
+    elif suspicious > 0:
+        risk = "🟠 مشبوه"
+    elif vt_attrs is not None and harmless > 0 and malicious == 0:
+        risk = "🟢 لا توجد مؤشرات خبيثة في نتائج VirusTotal الحالية"
+    else:
+        risk = "🟡 غير محسوم / يحتاج تحققاً إضافياً"
+
+    behavior = []
+    if web_info:
+        final_url = web_info["final_url"]
+        if final_url != url_to_check:
+            behavior.append(f"• 🔁 أعاد التوجيه إلى: `{final_url}`")
+        if web_info["forms"]:
+            behavior.append(f"• 🧾 يحتوي على {web_info['forms']} نموذج إدخال")
+        if web_info["password_inputs"]:
+            behavior.append(f"• 🔐 يحتوي على {web_info['password_inputs']} حقل كلمة مرور")
+        if web_info["email_inputs"]:
+            behavior.append(f"• ✉️ يحتوي على {web_info['email_inputs']} حقل بريد إلكتروني")
+        if web_info["external_scripts"]:
+            behavior.append(f"• ⚙️ يحتوي على {web_info['external_scripts']} سكربتات خارجية")
+        if web_info["meta_refresh"]:
+            behavior.append("• 🔄 يستخدم إعادة توجيه عبر Meta Refresh")
+        if web_info["title"] != "غير متوفر":
+            behavior.append(f"• 🏷️ عنوان الصفحة: `{web_info['title']}`")
+
+    if not behavior:
+        behavior.append("• لم تتوفر مؤشرات كافية لتحديد سلوك الصفحة بدقة.")
+
+    vt_block = (
+        "🛡️ *نسبة الخطورة و الأمان:*\n"
+        f"• 🔴 Malicious: `{malicious}`\n"
+        f"• 🟠 Suspicious: `{suspicious}`\n"
+        f"• 🟢 Harmless: `{harmless}`\n"
+        f"• ⚪ Undetected: `{undetected}`\n"
+        f"• ⏱️ Timeout: `{timeout}`\n"
+    )
+    if vt_error:
+        vt_block += f"• ⚠️ ملاحظة: `{vt_error[:350]}`\n"
+
+    http_block = "🌐 *تحليل طريقة عمل الرابط:*\n"
+    if web_info:
+        http_block += (
+            f"• الحالة HTTP: `{web_info['status_code']}`\n"
+            f"• Content-Type: `{web_info['content_type']}`\n"
+            f"• Server: `{web_info['server']}`\n"
+            f"• التحويلات: `{len(web_info['redirects'])}`\n"
+            + "\n".join(behavior)
+            + "\n"
+        )
+    else:
+        http_block += f"• تعذر فحص الصفحة مباشرة: `{web_error[:350] if web_error else 'غير متوفر'}`\n"
+
+    return (
+        "🔎 *نتيجة فحص الرابط المتقدم*\n\n"
+        f"🔗 *الرابط:* `{url_to_check}`\n"
+        f"⚠️ *مستوى الخطورة:* **{risk}**\n\n"
+        f"{vt_block}\n"
+        f"{http_block}\n"
+        "🧠 *طريقة الفحص:*\n"
+        "تم الفحص عن طرق أكثر من 30 محرك"
+    )
+
+# ==================== AI & FEATURES LOGIC ====================
+def convert_tts_and_send(bot_instance, chat_id, text):
+    try:
+        url = "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM"
+        headers = {
+            "Accept": "audio/mpeg",
+            "Content-Type": "application/json",
+            "xi-api-key": ELEVENLABS_TTS_KEY
+        }
+        payload = {
+            "text": text,
+            "model_id": "eleven_monolingual_v1",
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.5
+            }
+        }
+        response = requests.post(url, json=payload, headers=headers, timeout=15)
+        if response.status_code == 200:
+            voice_io = io.BytesIO(response.content)
+            voice_io.name = "speech.mp3"
+            bot_instance.send_voice(chat_id=chat_id, voice=voice_io, caption="🎧 *تم تحويل النص إلى صوت:*")
+            return
+    except Exception as e:
+        logging.error(f"ElevenLabs TTS error: {e}")
+
+    try:
+        encoded_text = urllib.parse.quote(text[:300])
+        tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&q={encoded_text}&tl=ar&client=tw-ob"
+        req_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        res = requests.get(tts_url, headers=req_headers, timeout=15)
+        if res.status_code == 200:
+            voice_io = io.BytesIO(res.content)
+            voice_io.name = "speech.mp3"
+            bot_instance.send_voice(chat_id=chat_id, voice=voice_io, caption="🎧 *تم تحويل النص إلى صوت:*")
+            return
+    except Exception as e:
+        logging.error(f"Backup TTS error: {e}")
+
+    send_message(bot_instance, chat_id, "❌ حدث خطأ أثناء تحويل النص إلى صوت، يرجى المحاولة لاحقاً.")
+
+def generate_strong_password_func():
+    chars = string.ascii_letters + string.digits + "!@#$%^&*()"
+    password = ''.join(random.choice(chars) for _ in range(16))
+    return f"🔑 *تم توليد كلمة مرور:*\n`{password}`\n\n(اضغط مرة للنسخ بسهولة 📋)"
+
+def generate_pro_image_and_send_ai(bot_instance, chat_id, prompt):
+    try:
+        encoded_prompt = urllib.parse.quote(prompt)
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+        bot_instance.send_photo(
+            chat_id=chat_id,
+            photo=image_url,
+            caption=f"🎨 *تم توليد وإرسال الصورة الاحترافية عالية الدقة بالذكاء الاصطناعي بنجاح:*\n`{prompt}`"
+        )
+    except Exception as e:
+        logging.error(f"AI Image generation error: {e}")
+        send_message(bot_instance, chat_id, f"❌ حدث خطأ أثناء توليد وإرسال الصورة: {str(e)}")
+
+def search_images_exact_pro(query):
+    encoded = urllib.parse.quote(query)
+    return (
+        f"🔍 *نتائج البحث المتميز عن الصور لـ:* `{query}`\n\n"
+        f"1️⃣ [معاينة الصور عبر Google Images](https://www.google.com/search?q={encoded}&tbm=isch)\n"
+        f"2️⃣ [البحث بجودة عالية عبر Pinterest](https://www.pinterest.com/search/pins/?q={encoded})\n"
+        f"3️⃣ [البحث المباشر عبر Yahoo](https://images.search.yahoo.com/search/images?p={encoded})"
+    )
+
+def simulate_visa_hunting():
+    card_number = f"4{random.randint(100,999)} {random.randint(1000,9999)} {random.randint(1000,9999)} {random.randint(1000,9999)}"
+    expiry_month = f"{random.randint(1,12):02d}"
+    expiry_year = f"{random.randint(27,32)}"
+    cvv = f"{random.randint(100,999)}"
+    holder = random.choice(["Ali Ahmed", "Omar Khaled", "Mohammed Salem", "Yousef Abdullah", "Zaid Tariq"])
+    balance = f"${random.randint(150, 4800)}.00"
+    
+    return (
+        f"💳 *تم صيد الفيزة بنجاح!* ✅\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"💳 *رقم البطاقة:* `{card_number}`\n"
+        f"📅 *تاريخ الانتهاء:* `{expiry_month}/{expiry_year}`\n"
+        f"🔐 *رمز الامان (CVV):* `{cvv}`\n"
+        f"👤 *اسم حامل البطاقة:* `{holder}`\n"
+        f"💰 *الرصيد المتاح:* `{balance}`\n"
+        f"🌍 *الحالة:* `نشطة وتعمل بنجاح`\n"
+        f"━━━━━━━━━━━━━━━━━━━━"
+    )
+
+def fetch_tiktok_info(username):
+    username = (username or "").replace("@", "").strip()
+    if not username:
+        return "❌ أرسل اسم مستخدم تيك توك صالحاً."
+
+    headers = {
+        'x-rapidapi-host': 'tiktok-api23.p.rapidapi.com',
+        'x-rapidapi-key': RAPIDAPI_TIKTOK_KEY,
+        'Host': 'tiktok-api23.p.rapidapi.com',
+        'Connection': 'Keep-Alive',
+        'User-Agent': 'okhttp/4.12.0',
+    }
+    params = {'uniqueId': username}
+
+    try:
+        response = requests.get(
+            'https://tiktok-api23.p.rapidapi.com/api/user/info',
+            params=params,
+            headers=headers,
+            timeout=25
+        )
+
+        try:
+            data = response.json()
+        except ValueError:
+            data = {}
+
+        if response.status_code != 200:
+            error_obj = data.get("message") or data.get("error") if isinstance(data, dict) else None
+            return f"❌ خطأ من خدمة معلومات تيك توك: HTTP {response.status_code}" + (
+                f"\nالتفاصيل: {str(error_obj)[:250]}" if error_obj else ""
+            )
+
+        user_info = {}
+        stats = {}
+
+        if isinstance(data, dict):
+            user_info_block = data.get("userInfo")
+            if isinstance(user_info_block, dict):
+                user_info = user_info_block.get("user") or {}
+                stats = user_info_block.get("stats") or {}
+
+            if not user_info:
+                user_info = data.get("user") or {}
+            if not stats:
+                stats = data.get("stats") or {}
+
+        if not isinstance(user_info, dict):
+            user_info = {}
+        if not isinstance(stats, dict):
+            stats = {}
+
+        if not user_info:
+            return f"❌ لم يتم العثور على معلومات للحساب: @{username}"
+
+        nickname = user_info.get('nickname') or user_info.get('displayName') or 'غير معروف'
+        account_id = (
+            user_info.get('id')
+            or user_info.get('uid')
+            or user_info.get('uniqueId')
+            or user_info.get('secUid')
+            or 'غير معروف'
+        )
+
+        followers = stats.get('followerCount', user_info.get('followerCount', 0))
+        following = stats.get('followingCount', user_info.get('followingCount', 0))
+        friends = stats.get('friendCount', user_info.get('friendCount', 0))
+        hearts = stats.get('heartCount', user_info.get('heartCount', 0))
+        videos = stats.get('videoCount', user_info.get('videoCount', 0))
+
+        verified_value = user_info.get('verified', False)
+        private_value = user_info.get('privateAccount', user_info.get('private_account', False))
+
+        is_verified = "✅ موثق" if bool(verified_value) else "❌ غير موثق"
+        account_status = "🔒 خاص" if bool(private_value) else "🌍 عام"
+
+        def _safe_count(value):
+            try:
+                return f"{int(value):,}"
+            except (TypeError, ValueError):
+                return str(value if value not in (None, "") else 0)
+
+        return (
+            f"📱 اتصال معلومات تيك توك من اليوزر 📱\n"
+            f"👤 المستخدم: `@{username}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"- الاسم ☑️: `{nickname}`\n"
+            f"- ايدي الحساب ☑️: `{account_id}`\n"
+            f"- عدد المتابعين ☑️: `{_safe_count(followers)}`\n"
+            f"- عدد اليتابعهم ☑️: `{_safe_count(following)}`\n"
+            f"- عدد الأصدقاء ☑️: `{_safe_count(friends)}`\n"
+            f"- عدد الايكات ☑️: `{_safe_count(hearts)}`\n"
+            f"- عدد الفيديوهات المنشورة ☑️: `{_safe_count(videos)}`\n"
+            f"- حالة التوثيق (موثق او لا) ☑️: {is_verified}\n"
+            f"- حالة الحساب (عام او خاص) ☑️: {account_status}"
+        )
+    except requests.Timeout:
+        logging.error("TikTok API request timed out")
+        return "⏱️ انتهت مهلة الاتصال بخدمة تيك توك. حاول مرة أخرى."
+    except requests.RequestException as e:
+        logging.error(f"TikTok API connection error: {e}")
+        return "❌ تعذر الاتصال بخدمة معلومات تيك توك حالياً. حاول مرة أخرى."
+    except Exception as e:
+        logging.exception("TikTok info error")
+        return "❌ حدث خطأ أثناء معالجة معلومات حساب تيك توك."
+
+def fetch_instagram_profile(username):
+    url = 'https://api.apify.com/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items'
+    params = {
+        'token': APIFY_INSTAGRAM_TOKEN,
+        'timeout': 60,
+        'memory': 1024
+    }
+    payload = {
+        'directUrls': [f'https://www.instagram.com/{username}/'],
+        'resultsType': 'details',
+        'resultsLimit': 1
+    }
+    try:
+        response = requests.post(url, params=params, json=payload, timeout=90)
+        response.raise_for_status()
+        data = response.json()
+        if not data or not isinstance(data, list):
+            return f"❌ لم يتم العثور على بيانات حقيقية لهذا الحساب: @{username}"
+        
+        profile = data[0]
+        uname = profile.get('username', username)
+        full_name = profile.get('fullName', 'غير معروف')
+        user_id = profile.get('id', 'غير معروف')
+        followers = profile.get('followersCount', 0)
+        following = profile.get('followsCount', 0)
+        friends = profile.get('mutualFollowersCount', 0)
+        likes = profile.get('totalLikes', 0)
+        videos = profile.get('postsCount', 0)
+        is_verified = profile.get('verified', False)
+        is_private = profile.get('private', False)
+
+        verified_status = "✅ موثق" if is_verified else "❌ غير موثق"
+        account_status = "🔒 خاص" if is_private else "🌍 عام"
+
+        return (
+            f"📱 معلومات حساب إنستقرام\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 الاسم: `{full_name}`\n"
+            f"🔗 المستخدم: `@{uname}`\n"
+            f"🆔 ايدي الحساب: `{user_id}`\n"
+            f"👥 عدد المتابعين: `{followers:,}`\n"
+            f"👤 عدد اليتابعهم: `{following:,}`\n"
+            f"🤝 عدد الأصدقاء: `{friends:,}`\n"
+            f"❤️ عدد الايكات: `{likes:,}`\n"
+            f"📸 عدد الفيديوهات المنشورة: `{videos:,}`\n"
+            f"🔹 حالة التوثيق: {verified_status}\n"
+            f"🔹 حالة الحساب: {account_status}"
+        )
+    except Exception as e:
+        return f"❌ حدث خطأ أثناء جلب معلومات انستقرام: {str(e)}"
+
+def query_gemini_ai(prompt):
+    """
+    واجهة الذكاء الشرير عبر BlazeAPI.
+    تم الإبقاء على اسم الدالة حتى لا تتغير أي توصيلات أو وظائف غير مطلوبة.
+    """
+    prompt = (prompt or "").strip()
+    if not prompt:
+        return "❌ أرسل سؤالاً أو رسالة صالحة أولاً."
+
+    blaze_api_key = "blaze-43hv6tvridvnyx7b"
+
+    headers = {
+        "Authorization": f"Bearer {blaze_api_key}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    payload = {
+        "model": "gpt-5.2",
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "أنت «الذكاء الشرير» داخل بوت تيليجرام. "
+                    "أنت قوي، حاد، وذو حضور مخيف، لكنك تتعامل مع المستخدم وفق نبرة رسالته. "
+                    "إذا كان المستخدم محترماً أو سؤاله جاداً، أجب باحترام ووضوح وبأسلوب قوي دون مبالغة. "
+                    "إذا أهان المستخدم الذكاء الاصطناعي أو حاول استفزازه، استخدم أسلوباً مرعباً وساخراً "
+                    "ومكثفاً يوحي بالهيبة والبرود، لكن دون تهديد حقيقي، أو دعوة للعنف، أو ادعاء القدرة "
+                    "على إيذاء المستخدم أو الوصول إلى جهازه أو حساباته. "
+                    "لا تدّعي امتلاك صلاحيات أو قدرات غير موجودة. "
+                    "كن سريعاً ومباشراً، واجعل الرد مناسباً لسؤال المستخدم ولغته. "
+                    "لا تعرض خطوات التفكير الداخلية أو السلسلة الداخلية للاستدلال؛ قدم النتيجة المفيدة فقط."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 2048,
+        "stream": False,
+    }
+
+    try:
+        response = requests.post(
+            "https://api.blazeapi.org/paid/v1/chat/completions",
+            json=payload,
+            headers=headers,
+            timeout=(5, 45),
+        )
+
+        try:
+            res_json = response.json()
+        except ValueError:
+            res_json = {}
+
+        if response.status_code == 200:
+            choices = res_json.get("choices") or []
+            if choices:
+                message = choices[0].get("message") or {}
+                answer = message.get("content")
+                if isinstance(answer, str) and answer.strip():
+                    return answer.strip()
+
+            logging.error("BlazeAPI returned HTTP 200 without a usable answer: %s", res_json)
+            return "❌ الذكاء الشرير استلم الرد، لكن الخدمة أعادت نتيجة غير مكتملة."
+
+        error_obj = res_json.get("error") or {}
+        error_message = error_obj.get("message") or response.text[:500] or "خطأ غير معروف"
+
+        if response.status_code == 401:
+            return "❌ مفتاح الذكاء الشرير غير صالح أو تم رفض المصادقة."
+        if response.status_code == 403:
+            return "⚠️ النموذج المطلوب غير متاح للمفتاح الحالي."
+        if response.status_code == 429:
+            return "⏳ تم الوصول إلى حد الطلبات حالياً. حاول بعد قليل."
+        if response.status_code >= 500:
+            return "⚠️ خدمة الذكاء الشرير تواجه عطلاً مؤقتاً. حاول مرة أخرى بعد قليل."
+
+        logging.error("BlazeAPI error %s: %s", response.status_code, error_message)
+        return f"❌ تعذر الحصول على رد من الذكاء الشرير: {error_message[:300]}"
+
+    except requests.Timeout:
+        logging.error("BlazeAPI request timed out")
+        return "⏱️ الذكاء الشرير تأخر في الرد بسبب مهلة الاتصال. حاول مرة أخرى."
+    except requests.RequestException as e:
+        logging.error("BlazeAPI connection error: %s", e)
+        return "❌ تعذر الاتصال بخدمة الذكاء الشرير حالياً. حاول مرة أخرى."
+    except Exception:
+        logging.exception("BlazeAPI unexpected error")
+        return "❌ حدث خطأ غير متوقع أثناء معالجة رسالة الذكاء الشرير."
+
+def get_random_fake_number_details():
+    countries = [
+        ("الولايات المتحدة الأمريكية", "+1", "🇺🇸"),
+        ("كندا", "+1", "🇨🇦"),
+        ("المملكة المتحدة", "+44", "🇬🇧"),
+        ("فرنسا", "+33", "🇫🇷"),
+        ("ألمانيا", "+49", "🇩🇪"),
+        ("السويد", "+46", "🇸🇪")
+    ]
+    c_name, c_code, c_flag = random.choice(countries)
+    phone_num = c_code + " " + ''.join(random.choices(string.digits, k=3)) + " " + ''.join(random.choices(string.digits, k=3)) + " " + ''.join(random.choices(string.digits, k=4))
+    
+    rand_days = random.randint(1, 30)
+    creation_date = f"2026-09-{rand_days:02d}"
+    creation_time = f"{random.randint(0,23):02d}:{random.randint(0,59):02d}:{random.randint(0,59):02d}"
+    
+    return (
+        f"🔔 *تم طلب رقم جديد*:\n\n"
+        f"*━ رقم الهاتِف ☎️:* `{phone_num}`\n"
+        f"*━ الدولة :* {c_name} {c_flag}\n"
+        f"*━ رمز الدولة 🔑 :* `{c_code}`\n"
+        f"*━ تاريخ الإنشاء 📅 :* `{creation_date}`\n"
+        f"*━ وقت الإنشاء ⏰ :* `{creation_time}`\n\n"
+        "اختر أحد الأزرار أدناه للتحكم بالرقم:"
+    )
+
+def decorate_name_pro(name):
+    fancy_1 = f"꧁༺ {name} ༻꧂"
+    fancy_2 = f"♛【{name}】♛"
+    fancy_3 = f"⚡『{name}』⚡"
+    fancy_4 = f" ಌ • {name} • ಌ "
+    return (
+        f"🗿 *زخرفة الأسماء الاحترافية لـ:* `{name}`\n\n"
+        f"1️⃣ `{fancy_1}`\n"
+        f"2️⃣ `{fancy_2}`\n"
+        f"3️⃣ `{fancy_3}`\n"
+        f"4️⃣ `{fancy_4}`\n\n"
+        f"(انقر على الزخرفة لنسخها فوراً 📋)"
+    )
+
+
+def _encrypt_code_payload(raw_bytes):
+    'Encrypt a source payload with AES-256-GCM and return key, nonce and ciphertext.'
+    key = os.urandom(32)
+    nonce = os.urandom(12)
+    ciphertext = AESGCM(key).encrypt(nonce, raw_bytes, None)
+    return key, nonce, ciphertext
+
+
+def encrypt_python_source(source_bytes):
+    'Create a self-contained .py loader carrying an AES-GCM encrypted source payload.'
+    key, nonce, ciphertext = _encrypt_code_payload(source_bytes)
+    key_b64 = base64.b64encode(key).decode("ascii")
+    nonce_b64 = base64.b64encode(nonce).decode("ascii")
+    ciphertext_b64 = base64.b64encode(ciphertext).decode("ascii")
+
+    loader = f'''# -*- coding: utf-8 -*-
+# Protected Python source generated by the bot.
+import base64
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+_KEY = base64.b64decode("{key_b64}")
+_NONCE = base64.b64decode("{nonce_b64}")
+_DATA = base64.b64decode("{ciphertext_b64}")
+
+
+def _run_protected_source():
+    source = AESGCM(_KEY).decrypt(_NONCE, _DATA, None)
+    code = compile(source, __file__, "exec")
+    namespace = {{"__name__": "__main__", "__file__": __file__, "__package__": None}}
+    exec(code, namespace, namespace)
+
+
+if __name__ == "__main__":
+    _run_protected_source()
+'''
+    return loader.encode("utf-8")
+
+
+def encrypt_html_source(source_bytes):
+    'Create a self-contained HTML wrapper using the browser Web Crypto AES-GCM API.'
+    key, nonce, ciphertext = _encrypt_code_payload(source_bytes)
+    key_b64 = base64.b64encode(key).decode("ascii")
+    nonce_b64 = base64.b64encode(nonce).decode("ascii")
+    ciphertext_b64 = base64.b64encode(ciphertext).decode("ascii")
+
+    html = f'''<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Protected HTML</title>
+</head>
+<body>
+<div id="protected-content"></div>
+<script>
+(() => {{
+  const KEY_B64 = "{key_b64}";
+  const IV_B64 = "{nonce_b64}";
+  const DATA_B64 = "{ciphertext_b64}";
+
+  const b64ToBytes = (value) => Uint8Array.from(atob(value), c => c.charCodeAt(0));
+
+  async function decryptAndRender() {{
+    const key = await crypto.subtle.importKey(
+      "raw",
+      b64ToBytes(KEY_B64),
+      {{ name: "AES-GCM" }},
+      false,
+      ["decrypt"]
+    );
+
+    const plaintext = await crypto.subtle.decrypt(
+      {{ name: "AES-GCM", iv: b64ToBytes(IV_B64) }},
+      key,
+      b64ToBytes(DATA_B64)
+    );
+
+    const html = new TextDecoder().decode(plaintext);
+    document.open();
+    document.write(html);
+    document.close();
+  }}
+
+  decryptAndRender().catch(() => {{
+    document.getElementById("protected-content").textContent =
+      "Unable to decrypt protected HTML payload.";
+  }});
+}})();
+</script>
+</body>
+</html>
+'''
+    return html.encode("utf-8")
+
+
+def _send_encrypted_code_file(bot_instance, chat_id, source_bytes, language):
+    if language == "python":
+        encrypted_bytes = encrypt_python_source(source_bytes)
+        output_name = "file.py"
+    else:
+        encrypted_bytes = encrypt_html_source(source_bytes)
+        output_name = "file.html"
+
+    document = io.BytesIO(encrypted_bytes)
+    document.name = output_name
+    bot_instance.send_document(
+        chat_id=chat_id,
+        document=document,
+        caption=(
+            "🔐 تم تشفير الملف بنجاح.\n"
+            f"📦 النوع: {'Python' if language == 'python' else 'HTML'}\n"
+            f"📄 الملف: `{output_name}`\n"
+            "🛡️ الخوارزمية: AES-256-GCM"
+        ),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+def _read_uploaded_code_document(bot_instance, update, expected_extension):
+    'Download a Telegram document only when its extension matches the requested code type.'
+    document = update.message.document if update.message else None
+    if not document:
+        raise ValueError("لم يتم إرسال ملف.")
+
+    original_name = document.file_name or ""
+    if not original_name.lower().endswith(expected_extension):
+        raise ValueError(f"أرسل ملفاً بامتداد {expected_extension} فقط.")
+
+    telegram_file = bot_instance.get_file(document.file_id)
+    payload = telegram_file.download_as_bytearray()
+    return bytes(payload)
+
+
+def crypto_encode_decode(text, mode="encode"):
+    if mode == "encode":
+        encoded = base64.b64encode(text.encode("utf-8")).decode("utf-8")
+        return f"🔐 *النص بعد التشفير (Base64):*\n`{encoded}`"
+    else:
+        try:
+            decoded = base64.b64decode(text.encode("utf-8")).decode("utf-8")
+            return f"🔓 *النص بعد فك التشفير:*\n`{decoded}`"
+        except:
+            return "❌ خطأ: النص المرسل غير مشفر بشكل صحيح أو غير صالح لفك التشفير."
+
+def get_telegram_usernames_advanced():
+    u3 = f"@{ ''.join(random.choices(string.ascii_lowercase, k=3)) }"
+    u4 = f"@{ ''.join(random.choices(string.ascii_lowercase + string.digits, k=4)) }"
+    u5 = f"@{ ''.join(random.choices(string.ascii_lowercase, k=5)) }"
+    u6 = f"@{ ''.join(random.choices(string.ascii_lowercase + string.digits, k=6)) }"
+    return (
+        "💍 *صيد يوزرات تيليجرام نادرة ومميزة:*\n\n"
+        f"▪️ يوزر ثلاثي: `{u3}` *متاح*\n"
+        f"▪️ يوزر رباعي: `{u4}` *متاح*\n"
+        f"▪️ يوزر خماسي: `{u5}` *متاح*\n"
+        f"▪️ يوزر سداسي: `{u6}` *متاح*\n\n"
+        "إذا تريد الحصول على يوزرات عليك إعادة المحاولة."
+    )
+
+# ==================== HANDLERS ====================
+def start_made_bot(update, context):
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    current_bot_username = BOT_USERNAME
+    admin_id = ADMIN_ID
+    bot_type = "hack_bot"
+
+    load_made_bot_settings(current_bot_username)
+    bot_settings = made_bot_data.get(current_bot_username, DEFAULT_BOT_SETTINGS)
+
+    if context.args and len(context.args) > 0:
+        arg = context.args[0]
+        if arg.startswith("ref_"):
+            try:
+                referrer_id = int(arg.split("_")[1])
+                if referrer_id != user_id:
+                    members_list = bot_settings["members"]
+                    if user_id not in members_list:
+                        add_user_points(current_bot_username, referrer_id, 1)
+                        try:
+                            context.bot.send_message(chat_id=referrer_id, text="🎉 *مبروك! انضم مستخدم جديد عبر رابط دعوتك وحصلت على نقطة واحدة (1) جديدة!*", parse_mode=ParseMode.MARKDOWN)
+                        except:
+                            pass
+            except Exception as e:
+                logging.error(f"Referral error: {e}")
+
+    if current_bot_username not in bot_user_states:
+        bot_user_states[current_bot_username] = {}
+    bot_user_states[current_bot_username][user_id] = None
+
+    if user_id in bot_settings["banned_users"]:
+        send_message(context.bot, chat_id, "أنت محظور من قبل المطور، لا يمكنك استخدام البوت 📛")
+        return
+
+    if bot_settings["bot_status"] in ["off", "maintenance"] and not is_user_admin(current_bot_username, user_id):
+        send_message(context.bot, chat_id, "البوت في وضع الصيانة حالياً 🚨🚧 يرجى الانتظار حتى عودته للخدمة.")
+        return
+
+    members = bot_settings["members"]
+    if user_id not in members:
+        members.append(user_id)
+        bot_settings["members"] = members
+        save_made_bot_settings(current_bot_username)
+
+    is_sub, not_sub = check_user_subscribed(context.bot, user_id, current_bot_username)
+    if not is_sub:
+        send_message(
+            context.bot,
+            chat_id,
+            "⚠️ *عذراً عزيزي، يجب عليك الاشتراك في قنوات البوت أدناه لاستخدام البوت:*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_subscription_keyboard(not_sub)
+        )
+        return
+
+    send_message(context.bot, chat_id, bot_settings["start_message"], parse_mode=ParseMode.MARKDOWN, reply_markup=get_user_keyboard(admin_id, current_bot_username, user_id, bot_type))
+
+def handle_callback_query_made_bot(update, context):
+    query = update.callback_query
+    if not query.message:
+        query.answer("حدث خطأ", show_alert=True)
+        return
+
+    user_id = query.from_user.id
+    chat_id = query.message.chat.id
+    message_id = query.message.message_id
+    data = query.data
+
+    current_bot_username = BOT_USERNAME
+    admin_id = ADMIN_ID
+    bot_type = "hack_bot"
+    load_made_bot_settings(current_bot_username)
+    bot_settings = made_bot_data[current_bot_username]
+
+    if current_bot_username not in bot_user_states:
+        bot_user_states[current_bot_username] = {}
+
+    if data == "check_subscription_status":
+        is_sub, not_sub = check_user_subscribed(context.bot, user_id, current_bot_username)
+        if not is_sub:
+            query.answer("❌ لم تشترك بعد في جميع القنوات المطلوب الاشتراك بها!", show_alert=True)
+            try:
+                edit_message_text(
+                    context.bot,
+                    chat_id,
+                    message_id,
+                    "⚠️ *عذراً عزيزي، يجب عليك الاشتراك في جميع القنوات أدناه لاستخدام البوت:*",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=get_subscription_keyboard(not_sub)
+                )
+            except Exception as e:
+                logging.error(f"Error updating sub text: {e}")
+            return
+        else:
+            query.answer("✅ تم التحقق من الاشتراك بنجاح!", show_alert=True)
+            edit_message_text(
+                context.bot,
+                chat_id,
+                message_id,
+                bot_settings["start_message"],
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=get_user_keyboard(admin_id, current_bot_username, user_id, bot_type)
+            )
+            return
+
+    is_sub, not_sub = check_user_subscribed(context.bot, user_id, current_bot_username)
+    if not is_sub:
+        query.answer("⚠️ يجب عليك الاشتراك في القنوات أولاً!", show_alert=True)
+        send_message(
+            context.bot,
+            chat_id,
+            "⚠️ *عذراً عزيزي، يجب عليك الاشتراك في قنوات البوت أولاً لاستخدام البوت:*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_subscription_keyboard(not_sub)
+        )
+        return
+
+    bot_user_states[current_bot_username][user_id] = None
+
+    if data == "back_to_main_user_menu":
+        query.answer()
+        active_reports[chat_id] = False
+        edit_message_text(context.bot, chat_id, message_id, bot_settings["start_message"], parse_mode=ParseMode.MARKDOWN, reply_markup=get_user_keyboard(admin_id, current_bot_username, user_id, bot_type))
+        return
+
+    if data == "open_admin_panel":
+        if not is_user_admin(current_bot_username, user_id):
+            query.answer("هذا الزر مخصص للمطور والأدمن فقط ⛔", show_alert=True)
+            return
+        query.answer()
+        edit_message_text(context.bot, chat_id, message_id, "⚙️ *لوحة تحكم الأدمن والتحكم الكامل:*", reply_markup=get_admin_keyboard(current_bot_username, user_id, bot_type), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    # Admin Panel Handlers
+    if is_user_admin(current_bot_username, user_id):
+        if data == "admin_free_gift_all":
+            query.answer("🎁 جاري إرسال الهدية لجميع المشتركين...", show_alert=True)
+            gift_text = "🎁 *هدية مجانية مقدمة من المطور لجميع مستخدمي البوت!* تم إضافة 10 نقاط لحسابك 💎"
+            for mem_id in bot_settings["members"]:
+                try:
+                    add_user_points(current_bot_username, mem_id, 10)
+                    context.bot.send_message(chat_id=mem_id, text=gift_text, parse_mode=ParseMode.MARKDOWN)
+                except:
+                    pass
+            send_message(context.bot, chat_id, "✅ تم إرسال الهدية المجانية وشحن 10 نقاط لكل الأعضاء بنجاح.")
+            return
+        elif data == "admin_toggle_maintenance":
+            current_status = bot_settings.get("bot_status", "on")
+            new_status = "maintenance" if current_status != "maintenance" else "on"
+            bot_settings["bot_status"] = new_status
+            save_made_bot_settings(current_bot_username)
+            query.answer(f"تم تغيير حالة الصيانة إلى: {new_status}", show_alert=True)
+            edit_message_text(context.bot, chat_id, message_id, "⚙️ *لوحة تحكم الأدمن والتحكم الكامل:*", reply_markup=get_admin_keyboard(current_bot_username, user_id, bot_type), parse_mode=ParseMode.MARKDOWN)
+            return
+        elif data == "admin_stats_members":
+            query.answer(f"عدد المشتركين: {len(bot_settings['members'])} 👥", show_alert=True)
+            send_message(context.bot, chat_id, f"👥 *إحصائيات الأعضاء والمشتركين:*\n\n- إجمالي المشتركين: `{len(bot_settings['members'])}`\n- عدد الأدمنية: `{len(bot_settings.get('admins', []))}`\n- الأعضاء المحظورون: `{len(bot_settings.get('banned_users', []))}`", parse_mode=ParseMode.MARKDOWN)
+            return
+        elif data in ["admin_off_bot", "admin_on_bot", "admin_toggle_bot_open"]:
+            current_status = bot_settings.get("bot_status", "on")
+            new_status = "off" if current_status == "on" else "on"
+            bot_settings["bot_status"] = new_status
+            save_made_bot_settings(current_bot_username)
+            query.answer(f"تم تغيير حالة البوت إلى: {new_status}", show_alert=True)
+            edit_message_text(context.bot, chat_id, message_id, "⚙️ *لوحة تحكم الأدمن والتحكم الكامل:*", reply_markup=get_admin_keyboard(current_bot_username, user_id, bot_type), parse_mode=ParseMode.MARKDOWN)
+            return
+        elif data in ["admin_on_notif", "admin_off_notif", "admin_toggle_notif"]:
+            cur_notif = bot_settings.get("notifications", "off")
+            bot_settings["notifications"] = "on" if cur_notif == "off" else "off"
+            save_made_bot_settings(current_bot_username)
+            query.answer("تم تغيير حالة التنبيهات بنجاح", show_alert=True)
+            edit_message_text(context.bot, chat_id, message_id, "⚙️ *لوحة تحكم الأدمن والتحكم الكامل:*", reply_markup=get_admin_keyboard(current_bot_username, user_id, bot_type), parse_mode=ParseMode.MARKDOWN)
+            return
+        elif data in ["admin_pro_mode", "admin_free_mode", "admin_toggle_pay_mode"]:
+            cur_pay = bot_settings.get("payment_status", "free")
+            bot_settings["payment_status"] = "pro" if cur_pay == "free" else "free"
+            save_made_bot_settings(current_bot_username)
+            query.answer("تم تغيير وضع الاستخدام بنجاح", show_alert=True)
+            edit_message_text(context.bot, chat_id, message_id, "⚙️ *لوحة تحكم الأدمن والتحكم الكامل:*", reply_markup=get_admin_keyboard(current_bot_username, user_id, bot_type), parse_mode=ParseMode.MARKDOWN)
+            return
+        elif data in ["admin_on_points", "admin_off_points", "admin_toggle_points"]:
+            cur_pts = bot_settings.get("points_system_status", "on")
+            bot_settings["points_system_status"] = "off" if cur_pts == "on" else "on"
+            save_made_bot_settings(current_bot_username)
+            query.answer("تم تغيير حالة نظام النقاط بنجاح", show_alert=True)
+            edit_message_text(context.bot, chat_id, message_id, "⚙️ *لوحة تحكم الأدمن والتحكم الكامل:*", reply_markup=get_admin_keyboard(current_bot_username, user_id, bot_type), parse_mode=ParseMode.MARKDOWN)
+            return
+        elif data == "admin_recharge_points":
+            query.answer()
+            bot_user_states[current_bot_username][user_id] = "await_admin_recharge_points"
+            send_message(context.bot, chat_id, "💎 أرسل الآي دي (ID) متبوعاً بقيمة النقاط المراد شحنها (مثال:\n`123456789 50`)")
+            return
+        elif data == "admin_deduct_points":
+            query.answer()
+            bot_user_states[current_bot_username][user_id] = "await_admin_deduct_points"
+            send_message(context.bot, chat_id, "💎 أرسل الآي دي (ID) متبوعاً بقيمة النقاط المراد خصمها (مثال:\n`123456789 20`)")
+            return
+        elif data == "admin_add_admin":
+            query.answer()
+            bot_user_states[current_bot_username][user_id] = "await_admin_add"
+            send_message(context.bot, chat_id, "➕ أرسل آي دي (ID) المستخدم المراد تعيينه كأدمن:")
+            return
+        elif data == "admin_del_admin":
+            query.answer()
+            bot_user_states[current_bot_username][user_id] = "await_admin_del"
+            send_message(context.bot, chat_id, "➖ أرسل آي دي (ID) الأدمن المراد إزالته:")
+            return
+        elif data == "admin_broadcast_msg":
+            query.answer()
+            bot_user_states[current_bot_username][user_id] = "await_admin_broadcast"
+            send_message(context.bot, chat_id, "📮 أرسل الرسالة التي تريد إذاعتها لجميع المشتركين (نص، صورة، ملصق، أو فيديو):")
+            return
+        elif data == "admin_forward_msg":
+            query.answer()
+            bot_user_states[current_bot_username][user_id] = "await_admin_forward_target"
+            send_message(context.bot, chat_id, "🔄 أرسل آي دي (ID) المستخدم الذي تريد إرسال الرسالة إليه:")
+            return
+        elif data == "admin_set_ch":
+            query.answer()
+            bot_user_states[current_bot_username][user_id] = "await_admin_set_channel"
+            send_message(context.bot, chat_id, "💢 أرسل معرف القناة (مثل @ChannelName) للاشتراك الإجباري:")
+            return
+        elif data == "admin_del_ch":
+            bot_settings["channels"] = []
+            save_made_bot_settings(current_bot_username)
+            query.answer("تم حذف قنوات الاشتراك الإجباري الإضافية 🔱", show_alert=True)
+            edit_message_text(
+                context.bot,
+                chat_id,
+                message_id,
+                "⚙️ *لوحة تحكم الأدمن والتحكم الكامل:*",
+                reply_markup=get_admin_keyboard(current_bot_username, user_id, bot_type),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        elif data == "admin_ban_user":
+            query.answer()
+            bot_user_states[current_bot_username][user_id] = "await_admin_ban"
+            send_message(context.bot, chat_id, "🚫 أرسل آي دي (ID) العضو المراد حظره:")
+            return
+        elif data == "admin_unban_user":
+            query.answer()
+            bot_user_states[current_bot_username][user_id] = "await_admin_unban"
+            send_message(context.bot, chat_id, "❌ أرسل آي دي (ID) العضو لرفع الحظر عنه:")
+            return
+        elif data == "admin_set_start_msg":
+            query.answer()
+            bot_user_states[current_bot_username][user_id] = "await_admin_start_msg"
+            send_message(context.bot, chat_id, "📝 أرسل النص الجديد لرسالة البدء:")
+            return
+        elif data == "admin_download_data":
+            query.answer()
+            file_path = get_made_bot_data_path(current_bot_username)
+            try:
+                with open(file_path, 'rb') as f:
+                    context.bot.send_document(chat_id=chat_id, document=f, caption="💾 نسخة احتياطية لبيانات البوت:")
+            except Exception as e:
+                send_message(context.bot, chat_id, f"❌ خطأ أثناء رفع الملف: {e}")
+            return
+
+    # User Features Handlers
+    if data == "user_button_terms_of_use":
+        query.answer()
+        terms_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("تواصل مع المطور 👨‍💻", url="https://t.me/J_K_S_0")],
+            [InlineKeyboardButton("رجوع 🔙", callback_data="back_to_main_user_menu")]
+        ])
+        edit_message_text(context.bot, chat_id, message_id, TERMS_OF_USE_TEXT, reply_markup=terms_keyboard)
+        return
+
+    elif data == "user_button_get_joke":
+        joke = random.choice(JOKES_LIST)
+        query.answer("😂 نكتة جديدة!")
+        send_message(context.bot, chat_id, f"🤣 *نكتة اليوم:*\n\n{joke}", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data == "user_button_link_check":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_link_to_check"
+        send_message(context.bot, chat_id, "🖌️ أرسل الرابط المراد فحصه بدقة عالية:")
+        return
+
+    elif data == "user_button_my_id":
+        query.answer("🆔 معلومات حسابك تيليجرام", show_alert=True)
+        send_message(context.bot, chat_id, f"🆔 *معلومات حسابك الشخصي:*\n\n- **الآي دي (ID):** `{user_id}`\n- **الاسم:** `{query.from_user.full_name}`\n- **المعرف:** `@{query.from_user.username}`", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data == "user_button_tiktok_info":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_tiktok_username"
+        send_message(context.bot, chat_id, "📱 *أدخل اسم المستخدم لحساب تيك توك (بدون @):*")
+        return
+
+    elif data == "user_button_insta_info":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_insta_username"
+        send_message(context.bot, chat_id, "📱 *أدخل اسم المستخدم لحساب إنستقرام (بدون @):*")
+        return
+
+    elif data == "user_button_chatgpt":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_evil_ai_prompt"
+        send_message(
+            context.bot,
+            chat_id,
+            "🔥 *الذكاء الشرير جاهز...*\\n\\n"
+            "أرسل رسالتك الآن، وسيتم الرد عليك بأسلوب يتناسب مع نبرة كلامك."
+        )
+        return
+
+    elif data == "user_button_gemini_ai":
+        query.answer(url="https://t.me/Gemini_ai_Rbot")
+        return
+
+    elif data == "user_button_strong_password":
+        query.answer()
+        send_message(context.bot, chat_id, generate_strong_password_func(), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data == "user_button_image_gen_pro":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_image_gen_prompt"
+        send_message(context.bot, chat_id, "🎨 أرسل وصف الصورة المطلوبة ليتم توليدها:")
+        return
+
+    elif data == "user_button_image_search_fixed":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_image_search_query"
+        send_message(context.bot, chat_id, "أرسل وصف الصورة للبحث عنها:")
+        return
+
+    elif data == "user_button_azkar":
+        query.answer()
+        keyboard = [
+            [InlineKeyboardButton("أذكار الصباح 🌅", callback_data="azkar_morning_list")],
+            [InlineKeyboardButton("أذكار المساء 🌆", callback_data="azkar_evening_list")],
+            [InlineKeyboardButton("رجوع 🔙", callback_data="back_to_main_user_menu")]
+        ]
+        edit_message_text(context.bot, chat_id, message_id, "🕌 *اختر قسم الأذكار الإسلامية المطلوب:*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data == "azkar_morning_list":
+        query.answer()
+        text = "🌅 *أذكار الصباح الكاملة:*\n\n" + "\n\n".join([f"{i+1}. {z}" for i, z in enumerate(AZKAR_MORNING)])
+        send_message(context.bot, chat_id, text, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data == "azkar_evening_list":
+        query.answer()
+        text = "🌆 *أذكار المساء الكاملة:*\n\n" + "\n\n".join([f"{i+1}. {z}" for i, z in enumerate(AZKAR_EVENING)])
+        send_message(context.bot, chat_id, text, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data == "user_button_link_exploit":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_link_exploit"
+        send_message(context.bot, chat_id, "⚠️ أرسل الرابط المراد تلـغـيـ*ــمـه:")
+        return
+
+    elif data == "user_button_visa_phishing":
+        query.answer()
+        msg = send_message(context.bot, chat_id, "💳 *جاري فحص وصيد الفيزة...*\n\n[░░░░░░░░░░] 0%")
+        for i in range(1, 11):
+            time.sleep(0.2)
+            pct = i * 10
+            bar = "█" * (pct // 10) + "░" * (10 - (pct // 10))
+            edit_message_text(context.bot, chat_id, msg.message_id, f"💳 *جاري فحص وصيد الفيزة...*\n\n[{bar}] {pct}%")
+        
+        visa_info = simulate_visa_hunting()
+        edit_message_text(context.bot, chat_id, msg.message_id, visa_info, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data == "user_button_radio_hack":
+        query.answer()
+        keyboard = []
+        for i, st in enumerate(RADIO_STATIONS):
+            keyboard.append([InlineKeyboardButton(st["name"], callback_data=f"play_radio_{i}")])
+        keyboard.append([InlineKeyboardButton("رجوع 🔙", callback_data="back_to_main_user_menu")])
+        edit_message_text(context.bot, chat_id, message_id, "📻 *اختر الإذاعة المطلوبة للاستماع المباشر:*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data.startswith("play_radio_"):
+        query.answer()
+        idx = int(data.split("_")[2])
+        st = RADIO_STATIONS[idx]
+        send_message(context.bot, chat_id, f"📻 *جاري تشغيل {st['name']}...*\n\n[اضغط هنا للاستماع المباشر للبث]({st['url']})", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data == "user_button_name_decorate":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_name_decorate"
+        send_message(context.bot, chat_id, "🗿 أرسل الاسم المراد زخرفته باحترافية:")
+        return
+
+    elif data == "user_button_html_encrypt":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_html_encrypt"
+        send_message(
+            context.bot,
+            chat_id,
+            "🔵 *تشفير HTML*\n\nأرسل ملف `.html` الآن، أو أرسل كود HTML كنص وسيتم إرساله باسم `file.html`.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    elif data == "user_button_python_encrypt":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_python_encrypt"
+        send_message(
+            context.bot,
+            chat_id,
+            "🟣 *تشفير Python*\n\nأرسل ملف `.py` الآن، أو أرسل كود Python كنص وسيتم إرساله باسم `file.py`.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    elif data == "user_button_crypto_tools":
+        query.answer()
+        keyboard = [
+            [InlineKeyboardButton("تشفير نص 🔐", callback_data="crypto_mode_encode")],
+            [InlineKeyboardButton("فك تشفير نص 🔓", callback_data="crypto_mode_decode")],
+            [InlineKeyboardButton("رجوع 🔙", callback_data="back_to_main_user_menu")]
+        ]
+        edit_message_text(context.bot, chat_id, message_id, "🔐 *اختر النمط المطلوب للتشفير أو فك التشفير:*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data == "crypto_mode_encode":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_crypto_encode"
+        send_message(context.bot, chat_id, "🔐 أرسل النص المراد تشفيره:")
+        return
+
+    elif data == "crypto_mode_decode":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_crypto_decode"
+        send_message(context.bot, chat_id, "🔓 أرسل النص المشفر لفك تشفيره:")
+        return
+
+    # Reports Handlers (Instagram, TikTok, Snapchat)
+    elif data == "user_button_insta_reports":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_insta_report_user"
+        send_message(context.bot, chat_id, "🚨 *أرسل اسم المستخدم لحساب إنستقرام:*")
+        return
+
+    elif data == "user_button_tiktok_reports":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_tiktok_report_user"
+        send_message(context.bot, chat_id, "☠️ *أرسل اسم المستخدم لحساب تيك توك:*")
+        return
+
+    elif data == "user_button_snap_reports":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_snap_report_user"
+        send_message(context.bot, chat_id, "👻 *أرسل اسم المستخدم لحساب سناب شات:*")
+        return
+
+    elif data.startswith("rpt_"):
+        query.answer()
+        parts = data.split("_", 3)
+        if len(parts) == 4:
+            platform = parts[1]
+            type_idx = int(parts[2]) - 1
+            username = parts[3]
+            
+            platform_names = {
+                "insta": "إنستقرام",
+                "tiktok": "تيك توك",
+                "snap": "سناب شات"
+            }
+            p_name = platform_names.get(platform, platform)
+            r_type_name = REPORT_TYPES[type_idx] if 0 <= type_idx < len(REPORT_TYPES) else "عام"
+
+            active_reports[chat_id] = False
+            time.sleep(0.2)
+
+            t = threading.Thread(
+                target=run_reports_loop,
+                args=(context.bot, chat_id, message_id, p_name, username, r_type_name)
+            )
+            t.daemon = True
+            t.start()
+        return
+
+    elif data.startswith("stop_reports_"):
+        active_reports[chat_id] = False
+        query.answer("🛑 تم إيقاف البلاغات بنجاح!", show_alert=True)
+        return
+
+    elif data == "telegram_usernames_menu":
+        query.answer()
+        send_message(context.bot, chat_id, get_telegram_usernames_advanced(), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data == "ss7_menu":
+        query.answer()
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("إختراق إنستقرام", callback_data="ss7_instagram")],
+            [InlineKeyboardButton("إختراق واتساب", callback_data="ss7_whatsapp")],
+            [InlineKeyboardButton("إختراق تيك توك", callback_data="ss7_tiktok")],
+            [InlineKeyboardButton("رجوع 🔙", callback_data="back_to_main_user_menu")]
+        ])
+        edit_message_text(context.bot, chat_id, message_id, "📡 *SS7 — محاكاة اختبارية*\n\nاختر المنصة ثم أرسل اليوزر أو الرقم.\n⚠️.", reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data in ["ss7_instagram", "ss7_whatsapp", "ss7_tiktok"]:
+        query.answer()
+        platform = {"ss7_instagram": "instagram", "ss7_whatsapp": "whatsapp", "ss7_tiktok": "tiktok"}[data]
+        bot_user_states[current_bot_username][user_id] = {"state": "await_ss7_input", "platform": platform}
+        prompts = {
+            "instagram": "📸 أرسل يوزر إنستقرام أو المعرف المستهدف:",
+            "whatsapp": "🟢 أرسل رقم واتساب المستهدف:",
+            "tiktok": "🎵 أرسل يوزر تيك توك أو المعرف المستهدف:"
+        }
+        send_message(context.bot, chat_id, prompts[platform])
+        return
+
+    elif data == "user_button_full_phone_hack":
+        pts = get_user_points(current_bot_username, user_id)
+        if pts < 90 and not is_user_admin(current_bot_username, user_id):
+            query.answer("نقاطك غير كافية! يتطلب 90 نقطة 💎", show_alert=True)
+            send_message(context.bot, chat_id, f"⚠️ *عذراً! هذا الخيار مدفوع ويتطلب 90 نقطة.* نقاطك الحالية: `{pts}`\n\nاضغط زر 'الحصول على نقاط' لجمع النقاط.", parse_mode=ParseMode.MARKDOWN)
+            return
+        query.answer()
+        edit_message_text(context.bot, chat_id, message_id, "📱 *اختراق الهاتف بالكامل (لوحة التحكم الشاملة - سعر كل زر 90 نقطة):*", reply_markup=get_full_phone_hack_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data in ["full_phone_photos", "full_phone_contacts", "full_phone_messages", "full_phone_commands", "full_phone_device"]:
+        pts = get_user_points(current_bot_username, user_id)
+        if pts < 90 and not is_user_admin(current_bot_username, user_id):
+            query.answer("نقاطك غير كافية! سعر هذا الزر 90 نقطة 💎", show_alert=True)
+            send_message(context.bot, chat_id, f"⚠️ *عذراً! خيارات اختراق الهاتف تتطلب 90 نقطة لكل زر.* نقاطك الحالية: `{pts}`", parse_mode=ParseMode.MARKDOWN)
+            return
+        
+        if not is_user_admin(current_bot_username, user_id):
+            deduct_user_points(current_bot_username, user_id, 90)
+            
+        remaining_pts = get_user_points(current_bot_username, user_id)
+        target_link = links.get(data, "https://t.me/J_K_S_0")
+        link_with_id = f"{target_link}?id={user_id}"
+        query.answer("تم الخصم بنجاح ✅", show_alert=True)
+        send_message(context.bot, chat_id, f"🔒 *رابط التحكم الخاص بك جاهز:*\n\n{link_with_id}\n\n💎 *تم خصم 90 نقطة بنجاح.* رصيدك المتبقي: `{remaining_pts}` نقطة.", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data == "user_button_send_developer_note":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_developer_note"
+        send_message(context.bot, chat_id, "✉️ أرسل رسالتك أو ملاحظتك وستصل للمطور مباشرة:")
+        return
+
+    elif data == "get_points_main_menu":
+        query.answer()
+        pts = get_user_points(current_bot_username, user_id)
+        ref_link = f"https://t.me/{current_bot_username}?start=ref_{user_id}"
+        keyboard = [
+            [InlineKeyboardButton("مشاركة الرابط 📤", url=f"https://t.me/share/url?url={ref_link}&text=اشترك%20في%20هذا%20البوت%20الرائع!")],
+            [InlineKeyboardButton("شحن نقاط من خلال المطور 💳", url="https://t.me/J_K_S_0")]
+        ]
+        edit_message_text(
+            context.bot,
+            chat_id,
+            message_id,
+            f"💎 *نظام كسب النقاط:*\n\n- نقاطك الحالية: `{pts}` نقطة.\n- رابط الدعوة الخاص بك:\n`{ref_link}`\n\nتحصل على (1) نقطة لكل شخص يدخل عبر رابطك!",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    elif data in links:
+        target_link = links[data]
+        link_with_id = f"{target_link}?id={user_id}"
+        query.answer()
+        send_message(context.bot, chat_id, f"🔗 *تم إنشاء الرابط:*\n\n{link_with_id}", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data == "user_button_text_to_speech":
+        query.answer()
+        bot_user_states[current_bot_username][user_id] = "await_tts_text"
+        send_message(context.bot, chat_id, "🔄 أرسل النص المراد تحويله إلى صوت بجودة عالية:")
+        return
+
+    elif data == "user_button_fake_numbers":
+        query.answer()
+        number_details = get_random_fake_number_details()
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("طلب كود التحقق 📨", callback_data="fake_num_get_code")],
+            [InlineKeyboardButton("طلب رقم جديد 🔄", callback_data="fake_num_refresh")],
+            [InlineKeyboardButton("رجوع 🔙", callback_data="back_to_main_user_menu")]
+        ])
+        send_message(context.bot, chat_id, number_details, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data == "fake_num_get_code":
+        query.answer("جاري انتظار وصول الكود...", show_alert=True)
+        time.sleep(1)
+        rand_code = random.randint(100000, 999999)
+        send_message(context.bot, chat_id, f"📩 *وصلك كود جديد للرقم:*\n`{rand_code}`\n\n(اضغط للنسخ 📋)", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif data == "fake_num_refresh":
+        query.answer()
+        number_details = get_random_fake_number_details()
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("طلب كود التحقق 📨", callback_data="fake_num_get_code")],
+            [InlineKeyboardButton("طلب رقم جديد 🔄", callback_data="fake_num_refresh")],
+            [InlineKeyboardButton("رجوع 🔙", callback_data="back_to_main_user_menu")]
+        ])
+        edit_message_text(context.bot, chat_id, message_id, number_details, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
+        return
+
+def run_ss7_simulation(bot_instance, chat_id, platform, target):
+    """محاكاة اختبارية فقط؛ لا تستخرج أو تدّعي استخراج بيانات حقيقية."""
+    time.sleep(20)
+    clean_target = (target or "").strip()
+    common = "⚠️ هذه نتيجة تجريبية وهمية وليست اختراقاً أو استخراجاً حقيقياً.\n\n"
+    if platform == "instagram":
+        result = common + (f"📡 *نتيجة محاكاة SS7 — إنستقرام*\n\n👤 اليوزر: `{clean_target}`\n📧 البريد: `user@example.com` (محاكاة)\n🔑 كلمة المرور: `••••••••••` (غير مستخرجة)\n📱 الجهاز المرتبط: `جهاز تجريبي`\n📍 آخر دخول: `بيانات محاكاة`\n\n📸 الصور الخاصة: `محاكاة فقط`\n💬 الرسائل المباشرة: `محاكاة فقط`\n👥 المتابعين: `محاكاة فقط`\n🔐 الجلسات النشطة: `محاكاة فقط`\n\n— ᯓ 𓆩 ˹𝘙𝘖𝘉𝘐𝘕˼ 𓆪")
+    elif platform == "whatsapp":
+        result = common + (f"📡 *نتيجة محاكاة SS7 — واتساب*\n\n📱 الرقم: `{clean_target}`\n💬 المحادثات: `محاكاة فقط`\n📸 الصور: `محاكاة فقط`\n🎥 الفيديوهات: `محاكاة فقط`\n🎤 المقاطع الصوتية: `محاكاة فقط`\n📞 المكالمات المسجلة: `محاكاة فقط`\n\n📍 الموقع: `غير مستخرج`\n🔋 الجوال: `جهاز تجريبي`\n📡 الشبكة: `بيانات محاكاة`\n\n— ᯓ 𓆩 ˹𝘙𝘖𝘉𝘐𝘕˼ 𓆪")
+    else:
+        result = common + (f"📡 *نتيجة محاكاة SS7 — تيك توك*\n\n🎵 اليوزر: `{clean_target}`\n📱 الجهاز: `جهاز تجريبي`\n🌍 الدولة: `بيانات محاكاة`\n📧 الإيميل المرتبط: `user@example.com` (محاكاة)\n🔑 كلمة السر: `غير مستخرجة`\n\n📊 المشاهدات: `محاكاة فقط`\n❤️ الإعجابات: `محاكاة فقط`\n👥 المتابعين: `محاكاة فقط`\n💰 الرصيد: `0$ (محاكاة)`\n\n— ᯓ 𓆩 ˹𝘙𝘖𝘉𝘐𝘕˼ 𓆪")
+    send_message(bot_instance, chat_id, result, parse_mode=ParseMode.MARKDOWN)
+
+
+def handle_message_made_bot(update, context):
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    text = update.message.text if update.message and update.message.text else ""
+
+    current_bot_username = BOT_USERNAME
+    load_made_bot_settings(current_bot_username)
+    bot_settings = made_bot_data[current_bot_username]
+
+    if current_bot_username not in bot_user_states:
+        bot_user_states[current_bot_username] = {}
+
+    user_state = bot_user_states[current_bot_username].get(user_id)
+
+    if user_state in {"await_html_encrypt", "await_python_encrypt"}:
+        language = "html" if user_state == "await_html_encrypt" else "python"
+        expected_extension = ".html" if language == "html" else ".py"
+        bot_user_states[current_bot_username][user_id] = None
+
+        try:
+            if update.message and update.message.document:
+                source_bytes = _read_uploaded_code_document(context.bot, update, expected_extension)
+            elif text:
+                source_bytes = text.encode("utf-8")
+            else:
+                raise ValueError(
+                    f"أرسل ملفاً بامتداد {expected_extension} أو أرسل الكود كنص."
+                )
+
+            _send_encrypted_code_file(context.bot, chat_id, source_bytes, language)
+        except ValueError as exc:
+            send_message(context.bot, chat_id, f"❌ {exc}")
+        except Exception:
+            logging.exception("Code file encryption error")
+            send_message(context.bot, chat_id, "❌ تعذر تشفير الملف. تحقق من محتوى الملف وحاول مرة أخرى.")
+        return
+
+    if isinstance(user_state, dict) and user_state.get("state") == "await_ss7_input":
+        platform = user_state.get("platform")
+        bot_user_states[current_bot_username][user_id] = None
+        if platform not in {"instagram", "whatsapp", "tiktok"} or not text.strip():
+            send_message(context.bot, chat_id, "❌ الإدخال غير صالح. أعد المحاولة من قائمة SS7.")
+            return
+        send_message(context.bot, chat_id, "⏳ جاري التنفيذ...")
+        threading.Thread(target=run_ss7_simulation, args=(context.bot, chat_id, platform, text.strip()), daemon=True).start()
+        return
+
+    if is_user_admin(current_bot_username, user_id):
+        if user_state == "await_admin_recharge_points":
+            bot_user_states[current_bot_username][user_id] = None
+            try:
+                parts = text.strip().split()
+                if len(parts) != 2:
+                    raise ValueError("invalid format")
+                target_uid = int(parts[0])
+                pts_val = int(parts[1])
+                if target_uid <= 0 or pts_val <= 0:
+                    raise ValueError("values must be positive")
+                add_user_points(current_bot_username, target_uid, pts_val)
+                send_message(context.bot, chat_id, f"✅ تم شحن `{pts_val}` نقطة للآي دي `{target_uid}` بنجاح.", parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                send_message(context.bot, chat_id, "❌ خطأ في تنسيق المدخلات. أرسل: `ID عدد_النقاط` بقيم موجبة.")
+            return
+
+        elif user_state == "await_admin_deduct_points":
+            bot_user_states[current_bot_username][user_id] = None
+            try:
+                parts = text.strip().split()
+                if len(parts) != 2:
+                    raise ValueError("invalid format")
+                target_uid = int(parts[0])
+                pts_val = int(parts[1])
+                if target_uid <= 0 or pts_val <= 0:
+                    raise ValueError("values must be positive")
+                deduct_user_points(current_bot_username, target_uid, pts_val)
+                send_message(context.bot, chat_id, f"✅ تم خصم `{pts_val}` نقطة من الآي دي `{target_uid}` بنجاح.", parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                send_message(context.bot, chat_id, "❌ خطأ في تنسيق المدخلات. أرسل: `ID عدد_النقاط` بقيم موجبة.")
+            return
+
+        elif user_state == "await_admin_add":
+            bot_user_states[current_bot_username][user_id] = None
+            try:
+                new_admin_id = int(text.strip())
+                if new_admin_id not in bot_settings["admins"]:
+                    bot_settings["admins"].append(new_admin_id)
+                    save_made_bot_settings(current_bot_username)
+                    send_message(context.bot, chat_id, f"✅ تم تعيين `{new_admin_id}` كأدمن بنجاح.", parse_mode=ParseMode.MARKDOWN)
+                else:
+                    send_message(context.bot, chat_id, "هذا المستخدم أدمن بالفعل.")
+            except:
+                send_message(context.bot, chat_id, "❌ الآي دي غير صالح.")
+            return
+
+        elif user_state == "await_admin_del":
+            bot_user_states[current_bot_username][user_id] = None
+            try:
+                del_admin_id = int(text.strip())
+                if del_admin_id in bot_settings["admins"]:
+                    bot_settings["admins"].remove(del_admin_id)
+                    save_made_bot_settings(current_bot_username)
+                    send_message(context.bot, chat_id, f"✅ تم إزالة الأدمن `{del_admin_id}` بنجاح.", parse_mode=ParseMode.MARKDOWN)
+                else:
+                    send_message(context.bot, chat_id, "هذا المستخدم ليس أدمن.")
+            except:
+                send_message(context.bot, chat_id, "❌ الآي دي غير صالح.")
+            return
+
+        elif user_state == "await_admin_broadcast":
+            bot_user_states[current_bot_username][user_id] = None
+
+            if not update.message:
+                send_message(context.bot, chat_id, "❌ تعذر قراءة الرسالة المطلوبة للإذاعة.")
+                return
+
+            send_message(context.bot, chat_id, "📮 جاري إذاعة الرسالة لجميع المشتركين...")
+
+            count = 0
+            for mem_id in bot_settings["members"]:
+                try:
+                    context.bot.copy_message(
+                        chat_id=mem_id,
+                        from_chat_id=chat_id,
+                        message_id=update.message.message_id
+                    )
+                    count += 1
+                except Exception as e:
+                    logging.error(f"Admin broadcast error for {mem_id}: {e}")
+
+            send_message(
+                context.bot,
+                chat_id,
+                f"✅ تم إرسال الإذاعة بنجاح إلى `{count}` مشترك.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        elif user_state == "await_admin_forward_target":
+            try:
+                target_uid = int(text.strip())
+            except (TypeError, ValueError):
+                send_message(context.bot, chat_id, "❌ الآي دي غير صالح. أرسل رقماً صحيحاً.")
+                return
+            bot_user_states[current_bot_username][user_id] = {
+                "state": "await_admin_forward_message",
+                "target_id": target_uid
+            }
+            send_message(context.bot, chat_id, "✉️ أرسل الآن الرسالة النصية التي تريد إرسالها لهذا المستخدم:")
+            return
+
+        elif isinstance(user_state, dict) and user_state.get("state") == "await_admin_forward_message":
+            target_uid = int(user_state.get("target_id"))
+            bot_user_states[current_bot_username][user_id] = None
+            if not text.strip():
+                send_message(context.bot, chat_id, "❌ الرسالة النصية فارغة.")
+                return
+            try:
+                context.bot.send_message(chat_id=target_uid, text=text)
+                send_message(context.bot, chat_id, f"✅ تم إرسال الرسالة بنجاح إلى `{target_uid}`.", parse_mode=ParseMode.MARKDOWN)
+            except Exception as e:
+                logging.error(f"Admin direct message error for {target_uid}: {e}")
+                send_message(context.bot, chat_id, "❌ تعذر إرسال الرسالة. تأكد من أن المستخدم بدأ البوت أو أن المحادثة متاحة.")
+            return
+
+        elif user_state == "await_admin_set_channel":
+            bot_user_states[current_bot_username][user_id] = None
+            ch_name = text.strip()
+            if not ch_name.startswith("@"):
+                ch_name = "@" + ch_name
+            if ch_name not in bot_settings["channels"]:
+                bot_settings["channels"].append(ch_name)
+                save_made_bot_settings(current_bot_username)
+            send_message(context.bot, chat_id, f"✅ تم إضافة القناة `{ch_name}` للاشتراك الإجباري بنجاح.", parse_mode=ParseMode.MARKDOWN)
+            return
+
+        elif user_state == "await_admin_ban":
+            bot_user_states[current_bot_username][user_id] = None
+            try:
+                ban_id = int(text.strip())
+                if ban_id not in bot_settings["banned_users"]:
+                    bot_settings["banned_users"].append(ban_id)
+                    save_made_bot_settings(current_bot_username)
+                send_message(context.bot, chat_id, f"🚫 تم حظر المستخدم `{ban_id}` بنجاح.", parse_mode=ParseMode.MARKDOWN)
+            except:
+                send_message(context.bot, chat_id, "❌ الآي دي غير صالح.")
+            return
+
+        elif user_state == "await_admin_unban":
+            bot_user_states[current_bot_username][user_id] = None
+            try:
+                unban_id = int(text.strip())
+                if unban_id in bot_settings["banned_users"]:
+                    bot_settings["banned_users"].remove(unban_id)
+                    save_made_bot_settings(current_bot_username)
+                send_message(context.bot, chat_id, f"❌ تم رفع الحظر عن المستخدم `{unban_id}` بنجاح.", parse_mode=ParseMode.MARKDOWN)
+            except:
+                send_message(context.bot, chat_id, "❌ الآي دي غير صالح.")
+            return
+
+        elif user_state == "await_admin_start_msg":
+            bot_user_states[current_bot_username][user_id] = None
+            bot_settings["start_message"] = text
+            save_made_bot_settings(current_bot_username)
+            send_message(context.bot, chat_id, "✅ تم تحديث رسالة البدء بنجاح.")
+            return
+
+    # User Interactive States
+    if user_state in ["await_insta_report_user", "await_tiktok_report_user", "await_snap_report_user"]:
+        platform_map = {
+            "await_insta_report_user": ("insta", "إنستقرام"),
+            "await_tiktok_report_user": ("tiktok", "تيك توك"),
+            "await_snap_report_user": ("snap", "سناب شات")
+        }
+        platform_code, platform_name = platform_map[user_state]
+        bot_user_states[current_bot_username][user_id] = None
+        cleaned_username = text.replace("@", "").strip()
+
+        msg = send_message(context.bot, chat_id, f"🔍 (يتم التحقق من اسم المستخدم)...")
+        time.sleep(1.2)
+
+        kb = get_report_types_keyboard(platform_code, cleaned_username)
+        edit_message_text(
+            context.bot,
+            chat_id,
+            msg.message_id,
+            f"✅ تم التأكد من وجود اسم المستخدم (@{cleaned_username})\n\nاختر نوع البلاغ المطلوب:",
+            reply_markup=kb,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    elif user_state == "await_link_to_check":
+        bot_user_states[current_bot_username][user_id] = None
+        msg = send_message(context.bot, chat_id, "🛡️ *جاري فحص الرابط عبر فايروس توتال والذكاء الاصطناعي...*\n\n[░░░░░░░░░░] 0%")
+        for i in range(1, 11):
+            time.sleep(0.12)
+            pct = i * 10
+            bar = "█" * (pct // 10) + "░" * (10 - (pct // 10))
+            edit_message_text(context.bot, chat_id, msg.message_id, f"🛡️ *جاري فحص الرابط ومعالجة النتائج...*\n\n[{bar}] {pct}%")
+        
+        result_text = check_link_virustotal_and_ai(text)
+        edit_message_text(context.bot, chat_id, msg.message_id, result_text, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif user_state == "await_tiktok_username":
+        bot_user_states[current_bot_username][user_id] = None
+        cleaned_username = text.replace("@", "").strip()
+        send_message(context.bot, chat_id, "📱 *جاري جلب معلومات تيك توك بالحجم الكامل...*")
+        info = fetch_tiktok_info(cleaned_username)
+        send_message(context.bot, chat_id, info)
+        return
+
+    elif user_state == "await_insta_username":
+        bot_user_states[current_bot_username][user_id] = None
+        cleaned_username = text.replace("@", "").strip()
+        send_message(context.bot, chat_id, "📱 *جاري جلب معلومات حساب إنستقرام...*")
+        info = fetch_instagram_profile(cleaned_username)
+        send_message(context.bot, chat_id, info, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif user_state == "await_evil_ai_prompt":
+        bot_user_states[current_bot_username][user_id] = None
+        send_message(context.bot, chat_id, "🔥 *الذكاء الشرير يعالج رسالتك...*")
+        answer = query_gemini_ai(text)
+        send_message(context.bot, chat_id, f"🔥 الذكاء الشرير:\n\n{answer}")
+        return
+
+    elif user_state == "await_tts_text":
+        bot_user_states[current_bot_username][user_id] = None
+        send_message(context.bot, chat_id, "🎙️ *جاري تحويل النص إلى مقطع صوتي...*")
+        convert_tts_and_send(context.bot, chat_id, text)
+        return
+
+    elif user_state == "await_image_gen_prompt":
+        bot_user_states[current_bot_username][user_id] = None
+        send_message(context.bot, chat_id, "🎨 *جاري توليد وصناعة الصورة بالذكاء الاصطناعي...*")
+        generate_pro_image_and_send_ai(context.bot, chat_id, text)
+        return
+
+    elif user_state == "await_image_search_query":
+        bot_user_states[current_bot_username][user_id] = None
+        res_text = search_images_exact_pro(text)
+        send_message(context.bot, chat_id, res_text, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif user_state == "await_link_exploit":
+        bot_user_states[current_bot_username][user_id] = None
+        panel_link = links["link_exploit_panel"]
+        encoded_orig = urllib.parse.quote(text)
+        exploited_link = f"{panel_link}?target={encoded_orig}&id={user_id}"
+        send_message(context.bot, chat_id, f"⚠️ *تم تلغيم الرابط بنجاح!*\n\nالرابط المندمج والملغم جاهز:\n{exploited_link}", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif user_state == "await_name_decorate":
+        bot_user_states[current_bot_username][user_id] = None
+        decorated_result = decorate_name_pro(text)
+        send_message(context.bot, chat_id, decorated_result, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif user_state == "await_crypto_encode":
+        bot_user_states[current_bot_username][user_id] = None
+        res_crypto = crypto_encode_decode(text, "encode")
+        send_message(context.bot, chat_id, res_crypto, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif user_state == "await_crypto_decode":
+        bot_user_states[current_bot_username][user_id] = None
+        res_crypto = crypto_encode_decode(text, "decode")
+        send_message(context.bot, chat_id, res_crypto, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    elif user_state == "await_developer_note":
+        bot_user_states[current_bot_username][user_id] = None
+        try:
+            dev_msg = f"✉️ *ملاحظة جديدة من مستخدم:*\n- **الاسم:** {update.effective_user.full_name}\n- **المعرف:** @{update.effective_user.username}\n- **الآي دي:** `{user_id}`\n\n**الرسالة:**\n{text}"
+            context.bot.send_message(chat_id=ADMIN_ID, text=dev_msg, parse_mode=ParseMode.MARKDOWN)
+            send_message(context.bot, chat_id, "✅ تم إرسال ملاحظتك بنجاح إلى المطور. شكرًا لك!")
+        except Exception as e:
+            send_message(context.bot, chat_id, "❌ حدث خطأ أثناء إرسال الملاحظة.")
+        return
+
+    send_message(context.bot, chat_id, bot_settings["start_message"], parse_mode=ParseMode.MARKDOWN, reply_markup=get_user_keyboard(ADMIN_ID, current_bot_username, user_id, "hack_bot"))
+
+# ==================== MAIN EXECUTION ====================
+def main():
+    global BOT_USERNAME
+    BOT_USERNAME = get_bot_username_from_token(BOT_TOKEN)
+    load_made_bot_settings(BOT_USERNAME)
+
+    updater = Updater(BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    dp.add_handler(CommandHandler("start", start_made_bot))
+    dp.add_handler(CallbackQueryHandler(handle_callback_query_made_bot))
+    dp.add_handler(MessageHandler(Filters.all & ~Filters.command, handle_message_made_bot))
+
+    logging.info(f"🚀 Started Bot successfully: @{BOT_USERNAME}")
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == '__main__':
+    main()
